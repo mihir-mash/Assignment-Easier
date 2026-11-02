@@ -129,7 +129,12 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   await expect(page.locator(".page image")).toHaveCount(0);
   await page.getByRole("button", { name: "Accept crop" }).click();
   await expect(
-    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+    page.locator(
+      ".crop-photo img[alt='Original paper photograph with surroundings']",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Preview Corrected Crop" }),
   ).toBeVisible();
   await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
   await expect(page.locator(".page image")).toHaveCount(1);
@@ -149,9 +154,10 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   await page.getByRole("tab", { name: /Select Your Paper/ }).click();
   await page.getByRole("button", { name: "Reset to original" }).click();
   await expect(
-    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
-  ).toHaveCount(0);
+    page.getByRole("button", { name: "Preview Corrected Crop" }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
+  await expect(page.locator(".page image")).toHaveCount(0);
   const savedTemplateOption = page
     .getByLabel("Load a template")
     .locator("option")
@@ -303,19 +309,27 @@ test("uncertain detection supports manual corners, rejects invalid crop, and inv
   await topLeft.getByLabel("X (%)").fill("23.7");
   await topLeft.getByLabel("Y (%)").fill("8.3");
   await page.getByRole("button", { name: "Preview Corrected Crop" }).click();
+  await expect(
+    page
+      .locator(".crop-photo")
+      .getByRole("img", { name: "Corrected paper preview" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Accept crop" }).click();
   await expect(
-    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+    page.locator(
+      ".crop-photo img[alt='Original paper photograph with surroundings']",
+    ),
   ).toBeVisible();
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
+  await expect(page.locator(".page image")).toHaveCount(1);
   await page.getByRole("tab", { name: /Select Your Paper/ }).click();
   const restoredTopLeft = page.getByRole("group", {
     name: groups[0],
     exact: true,
   });
   await restoredTopLeft.getByLabel("X (%)").fill("24");
-  await expect(
-    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
-  ).toHaveCount(0);
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
+  await expect(page.locator(".page image")).toHaveCount(0);
   expect(await page.locator("body").innerText()).not.toContain("\u2014");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(

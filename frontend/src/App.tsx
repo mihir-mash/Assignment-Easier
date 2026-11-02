@@ -117,22 +117,7 @@ export function App() {
                   After changing the aspect ratio, reprocess the original photo.
                 </p>
               )}
-              <div className="section-heading">
-                <div>
-                  <h2>Physical sheet</h2>
-                  <p>
-                    Confirm the crop, perspective and physical dimensions.
-                    Writing positions are configured in the next step.
-                  </p>
-                </div>
-              </div>
-              {acceptedImage ? (
-                <img
-                  className="paper-confirmed"
-                  src={acceptedImage}
-                  alt="Confirmed, perspective-corrected paper"
-                />
-              ) : (
+              {!acceptedImage && (
                 <p className="empty-preview">
                   Upload a paper photo to begin. The original remains available
                   for recropping.

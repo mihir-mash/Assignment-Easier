@@ -7,6 +7,7 @@ from app.layout.engine import LayoutSettings,layout_result
 from app.pdf.export import render_pdf, render_calibration_pdf
 from app.paper.routes import router as paper_router
 from app.paper.templates import router as templates_router
+from app.profiles import router as profiles_router
 
 
 class HealthResponse(BaseModel):
@@ -18,6 +19,7 @@ class HealthResponse(BaseModel):
 app = FastAPI(title='InkMatch API',version='0.2.0')
 app.include_router(paper_router)
 app.include_router(templates_router)
+app.include_router(profiles_router)
 
 
 @app.get('/api/v1/health',response_model=HealthResponse)

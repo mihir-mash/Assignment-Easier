@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -8,9 +9,15 @@ from typing import Any, Iterator
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.api.models import LayoutRequest
+from app.storage import migrate
 
 router = APIRouter(prefix="/api/v1/paper/templates", tags=["paper templates"])
-DATABASE = Path(__file__).resolve().parents[2] / "data" / "paper-templates.sqlite3"
+DATABASE = Path(
+    os.environ.get(
+        "INKMATCH_DATABASE",
+        str(Path(__file__).resolve().parents[2] / "data" / "paper-templates.sqlite3"),
+    )
+).resolve()
 
 
 class TemplateRequest(BaseModel):
@@ -30,9 +37,8 @@ class TemplateRequest(BaseModel):
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    DATABASE.parent.mkdir(parents=True, exist_ok=True)
+    migrate(DATABASE)
     db = sqlite3.connect(DATABASE)
-    db.execute("CREATE TABLE IF NOT EXISTS paper_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
     try:
         yield db
         db.commit()

@@ -46,7 +46,7 @@ npm run test:e2e
 
 Backend tests should run with the virtual environment activated, or use `.venv/Scripts/python.exe -m pytest backend/tests -q`. The backend runtime and browser share `shared/layout.ts`, `shared/equations.ts` and generated font metrics. Node.js is therefore required for PDF/layout API requests as well as frontend development. To regenerate the checked-in demo font/metrics, run `python scripts/prepare_font.py`; its redistribution license is in `frontend/public/fonts/LICENSE.txt`.
 
-Browser tests launch a real headless Chrome against local services on ports 15173 and 18000. The default executable is `C:/Program Files/Google/Chrome/Application/chrome.exe`; adjust `playwright.config.ts` for another installation/platform. `INKMATCH_PYTHON` can select a specific Python executable for these tests. Tests generate a perspective paper-on-desk fixture with uneven lighting and surrounding objects; screenshots and test PDFs are written under ignored `tmp/qa/`.
+Browser tests launch a real headless Chrome against local services on ports 15173 and 18000, using an isolated SQLite database under ignored `tmp/qa/`. The default executable is `C:/Program Files/Google/Chrome/Application/chrome.exe`; adjust `playwright.config.ts` for another installation/platform. `INKMATCH_PYTHON` can select a specific Python executable for these tests. Set `INKMATCH_DATABASE` to choose a local SQLite database path when running the backend directly. Tests generate a perspective paper-on-desk fixture with uneven lighting; screenshots and test PDFs are written under ignored `tmp/qa/`.
 
 ## Remaining verification and limits
 
@@ -63,4 +63,10 @@ Stage 1 is not closed until a physical alignment test is recorded:
 5. Download and print the calibration PDF again at 100%. Repeat small corrections, then print a page of document content and check feed orientation and nonprintable edges.
 6. Record printer, feed direction, selected dimensions, print-dialog scaling and measured before/after errors. Actual physical alignment remains unverified until this is done on the target printer.
 
-Physical printer alignment still needs a real-paper test. The SQLite template service is local to this installation; browser fallback copies remain browser-specific. Stage 2 handwriting acquisition and training remain outside the implemented scope.
+Physical printer alignment still needs a real-paper test. The SQLite template service is local to this installation; browser fallback copies remain browser-specific.
+
+## Stage 2 profile data foundation
+
+Local profile APIs are available at `GET/POST /api/v1/profiles`, `GET/PUT/DELETE /api/v1/profiles/{id}`, and `GET/POST /api/v1/profiles/{id}/samples` plus `GET/PUT/DELETE /api/v1/profiles/{id}/samples/{sample_id}`. Profile deletion requires `?confirm=true`; sample-record deletion does too. Deleting records does not remove saved raw stroke files. Asset references are opaque generated UUIDs, not filesystem paths. Stylus stroke data uses a versioned JSON file in the local sibling assets directory, with normalized coordinates and optional pressure/tilt. Bounded image asset storage helpers write local files rather than database blobs; the upload API and image review flow are not implemented in this run. No handwriting capture UI, segmentation, coverage UI, or personalized renderer is implemented. The temporary Stage 1 renderer remains in use.
+
+SQLite migrations use `PRAGMA user_version`. Before a migration modifies an existing database, the backend makes a timestamped SQLite backup next to it. `backend/app/coverage_thresholds.json` contains adjustable defaults; the values are not yet used to show coverage. Stage 2 remains in progress; Stage 3 has not started.

@@ -1,0 +1,10 @@
+{
+  "target_repetitions_per_character": 5,
+  "target_repetitions_per_combination": 3,
+  "minimum_contextual_examples": 2,
+  "cutoffs": {
+    "missing_max_percent": 0,
+    "more_samples_suggested_max_percent": 79,
+    "good_coverage_min_percent": 80
+  }
+}

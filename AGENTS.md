@@ -5,7 +5,7 @@ You are the coding agent working in the InkMatch repository. These instructions 
 ## 1. Read first, every session
 1. Read `PROJECT_SPEC.md` and `ARCHITECTURE.md` before planning or editing.
 2. Read the current `README.md`, existing code, tests, and git status before making changes.
-3. Respect the **current authorized stage**. The initial authorization is **Stage 1 only**. Never build later-stage features merely because they appear in the spec.
+3. Respect the **current authorized stage**. Stage 1 is implemented. Stage 2 Run 1 (audit and data model/storage) is authorized; do not proceed to Run 2 or later tasks unless explicitly asked. Never implement Stage 3 without explicit authorization.
 4. When a request conflicts with one of these files, explain the conflict briefly and request approval before changing the requirements.
 
 ## 2. Product invariants (never violate)
@@ -73,3 +73,14 @@ Do **not** make any of these changes without asking first:
 5. Run tests; guide user through one physical print alignment test; document remaining limits and handoff notes for Stage 2.
 
 **Always distinguish:** implemented, partially implemented, and planned. Stop at the authorized stage boundary.
+
+## 8. Stage 2 standing rules
+- Do not start Stage 3. No fake personalised rendering. The existing temporary handwriting renderer stays until Stage 3.
+- All handwriting processing is local. No paid services, no cloud APIs, no external OCR APIs, no heavy ML dependencies.
+- Original uploads and raw stroke data are never modified or discarded. Processing works on copies and can be repeated.
+- Never silently overwrite or delete profile data. Deletion needs confirmation.
+- Do not claim accuracy, security or encryption that is not implemented and tested.
+- No em dashes in any application UI text, labels, instructions or generated user-facing copy.
+- Windows compatible. Do not hardcode project paths. Avoid new dependencies unless clearly justified.
+- Keep code modular, reuse existing components and utilities, use the existing test framework, no duplicate implementations of the same feature.
+- After each task: run relevant tests, fix regressions, update STAGE2_PLAN.md and PROGRESS.md, report limitations.

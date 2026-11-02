@@ -27,3 +27,45 @@
 - Automatic paper detection is best effort; curved/occluded sheets and atypical lighting need manual review. Generated fixtures do not establish robustness across real cameras.
 - Template SQLite library is local to this backend instance; browser cache/fallback is per browser. A backend outage does not silently change the SQLite copy.
 - Demo font coverage and advanced equation formatting remain limited. Personalized handwriting is outside Stage 1.
+
+## Stage 2 Run 1: audit and data model/storage
+
+### Audit findings
+
+- Structure: React/Vite/TypeScript under `frontend/src`, shared deterministic layout and math under `shared`, FastAPI routes/services under `backend/app`, pytest under `backend/tests`, Vitest under `frontend/src`, Playwright under `e2e`.
+- Navigation and state: four Stage 1 tabs are in `frontend/src/App.tsx`; `frontend/src/useInkMatch.tsx` owns workspace/editor state. Paper feature components are separated under `frontend/src/features`.
+- Backend: paper image endpoints in `backend/app/paper/routes.py`, template endpoints in `backend/app/paper/templates.py`, layout/PDF/calibration endpoints in `backend/app/main.py`.
+- SQLite before this run had only the `paper_templates` table. Stage 1 paper-photo upload is validated and processed locally in memory; saved template payload can include browser-submitted image data. No backend handwriting file store or profile API existed.
+- OpenCV/Pillow utilities live in `backend/app/paper/processing.py`. Pointer Events are used for crop handles and writing geometry in `PaperCrop.tsx` and `PagePreview.tsx`. State is React hooks plus browser IndexedDB/localStorage helpers. Styling is component CSS in `frontend/src/styles.css`; no Tailwind dependency is present.
+- Baseline working tree had an unrelated modified `frontend/src/App.tsx`; it was not changed by this run. Its removal of the confirmed-paper image assertion target explains two baseline E2E failures.
+
+### Implemented
+
+- Added profile and sample SQLite tables with a versioned schema migration, foreign key association, profile sample counts, and automatic timestamped pre-migration SQLite backups.
+- Added profile CRUD and sample CRUD APIs. Opaque UUID asset references prevent caller-controlled paths. Deletion requires `confirm=true`; raw stroke files are retained when sample records are removed.
+- Added versioned stylus JSON storage with normalized x/y, timestamps, optional pressure/tilt, points grouped by strokes, pointer events/type, metadata and capture canvas dimensions. Missing pressure/tilt are valid and their omitted representation is preserved.
+- Added bounded local image asset storage helpers that write generated JPG/JPEG/PNG/WebP files rather than SQLite blobs; the upload API and image validation/review workflow remain Run 3.
+- Added editable default coverage thresholds. Coverage computation and UI remain planned.
+- Updated standing rules, architecture, README and `STAGE2_PLAN.md`. Stage 3 remains unstarted. No frontend capture/upload UI or personalized rendering was added.
+
+### Verification
+
+- Baseline before changes: `npm run lint` passed; `npm run typecheck` passed; frontend Vitest 19 passed; backend pytest 24 passed; `npm run build` passed.
+- Baseline browser E2E: 3 passed, 2 failed out of 5. Both failures expected a confirmed-paper image removed by the pre-existing uncommitted `App.tsx` change. Remaining three passed.
+- After implementation: `.venv/Scripts/python.exe -m pytest backend/tests -q` passed, 29 passed, 1 upstream Starlette/AnyIO deprecation warning.
+- Focused tests cover migration and backup with existing Stage 1 template data, profile/sample CRUD and association, repeated API-client persistence, label alignment, stroke round-trip with absent pressure/tilt, invalid references/input, and confirmed deletion.
+
+### Limitations and next step
+
+- Local image storage helpers are implemented. The profile image upload API, image-content validation and upload review flow are deferred to Run 3. Stylus capture UI and processing are Run 2. No handwriting synthesis has been attempted.
+- The earlier browser E2E failures were assertions for the intentionally removed separate crop thumbnail. The tests now assert the corrected image in the crop viewport before acceptance, editing controls after acceptance, and the accepted crop in the writing-area preview. Physical printer alignment is still pending the user's real-world test and is not a blocker for Stage 2.
+- Next authorized work is Run 2: Task 3 guided stylus capture and the stylus portion of Task 4 normalization/quality checks.
+
+### Run 1 hardening verification
+
+- Migration failure injection now raises after the profiles table DDL has executed. The transaction rolls back, restoring the exact original schema, data and `user_version`; the timestamped backup remains available. Retrying succeeds, and a second migration leaves the schema unchanged.
+- A new database migrates without making a backup of the empty file; existing databases still receive timestamped backups before migration.
+- Profile/sample tests now cover invalid sample IDs, nonexistent parent profiles, cross-profile isolation and confirmed profile deletion behavior.
+- A process-level persistence test starts two independent backend processes against the same isolated temporary SQLite file and verifies profile/sample retrieval after restart. Processes are stopped in `finally` and ports are dynamically selected with retry.
+- Playwright uses a per-run ignored SQLite database via `INKMATCH_DATABASE`, so E2E template writes do not touch the user's local template database.
+- Full regression: backend pytest **33 passed**; frontend Vitest **19 passed**; Playwright **5 passed**; `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` passed.

@@ -154,7 +154,7 @@ Final DTOs may be implemented in Pydantic and generated/shared as TS types; main
 
 ## 5. API proposal (version 1)
 
-Implemented: `GET /api/v1/health`, `POST /api/v1/layout`, `POST /api/v1/export/pdf`, the paper processing routes described above, local SQLite paper-template list/create/load/update routes, and `POST /api/v1/calibration/pdf`. Layout/export accept validated snake_case source/settings DTOs, including physical dimensions, spacing, colour, slant, exclusions and XY offsets. Responses include positioned pages/runs and warnings. The browser and API both execute the same shared engine; live editing does not wait for API responses. Document APIs remain planned.
+Implemented: `GET /api/v1/health`, `POST /api/v1/layout`, `POST /api/v1/export/pdf`, paper processing routes, local SQLite paper-template routes, calibration PDF, and local handwriting profile/sample CRUD routes. Layout/export accept validated snake_case source/settings DTOs, including physical dimensions, spacing, colour, slant, exclusions and XY offsets. Responses include positioned pages/runs and warnings. The browser and API both execute the same shared engine; live editing does not wait for API responses. Document APIs remain planned.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -168,9 +168,12 @@ Implemented: `GET /api/v1/health`, `POST /api/v1/layout`, `POST /api/v1/export/p
 | `POST /api/v1/layout` | Return canonical pages/runs from a draft or supplied document payload |
 | `POST /api/v1/export/pdf` | Render *the exact layout revision* to ink-only PDF |
 | `GET /api/v1/health` | Health check |
-| `POST /api/v1/profiles/...` | Stage 2+ acquisition endpoints, not required in Stage 1 |
+| `GET/POST /api/v1/profiles` | List and create local handwriting profiles |
+| `GET/PUT/DELETE /api/v1/profiles/{id}` | Read, rename, or explicitly confirmed profile deletion (`?confirm=true`) |
+| `GET/POST /api/v1/profiles/{id}/samples` | List/create profile samples |
+| `GET/PUT/DELETE /api/v1/profiles/{id}/samples/{sample_id}` | Read/update or explicitly confirmed sample record deletion |
 
-For files, impose MIME/type/size limits, validate magic bytes, normalize orientation and protect asset paths; never trust client-supplied filesystem paths. No arbitrary code execution from content. Avoid saving blank-paper images in PDFs.
+Profile/sample API responses expose opaque asset identifiers only. Asset references are UUIDs, never client paths. Versioned stylus data is stored as generated `<uuid>.stroke-v1.json` files under a sibling `<database-stem>-assets` directory; omitted pressure and tilt remain omitted. `save_image_asset` and `read_image_asset` store/retrieve bounded JPG/JPEG/PNG/WebP bytes as generated local files, never SQLite blobs; an upload endpoint and image validation/review workflow are later Stage 2 tasks. No arbitrary code execution from content. Avoid saving blank-paper images in PDFs.
 
 ## 6. Math conversion strategy
 Treat source text as canonical. When Equation Mode is enabled, run a limited parser into styled tokens/runs; it can use superscript/subscript glyphs when supported or explicit raised/lowered positioned runs. Preserve precedence and source ranges. For example:
@@ -194,14 +197,17 @@ class HandwritingRenderer(Protocol):
 
 Separately model layout geometry (width, baseline) from visual drawing paths or font assets. Rendering a new sample must not unexpectedly change line wrapping between preview and PDF. Use deterministic seed + cached assets for natural variations.
 
-## 8. Storage sketch
-- `paper_templates`: id, name, dimensions, geometry JSON, image asset reference, revisions.
+## 8. Storage
+- `paper_templates`: existing Stage 1 table with id, name, payload JSON and updated timestamp.
 - `documents`: id, template_id, profile_id, source_text, settings JSON, revision, timestamps.
-- `handwriting_profiles`: id, name, status, coverage JSON, asset references, revisions.
-- `handwriting_samples` (Stage 2): profile_id, prompted text, kind, stroke/image asset, metadata, quality flags.
+- `handwriting_profiles`: id, name, created/updated timestamps, status, sample source list, total sample count, processing status, metadata JSON and data format version.
+- `handwriting_samples`: id/profile association, source type, opaque original/processed asset refs, prompt/transcription, label type/text, context, repetition number, dimensions JSON, processing status, quality indicators JSON, creation timestamp and label alignment (`exact`, `unaligned`, `manual`, `unknown`).
+- Stylus samples reference versioned JSON files with normalized point coordinates, timestamps, nullable pressure/tilt, stroke boundaries, pointer events/type, available pen metadata and capture canvas dimensions. Raw stroke files are immutable; edits that provide replacement strokes write a new generated file.
 - `printer_profiles` (Stage 4): identifier, template/sheet association, settings, calibration matrix, uncertainty.
 
-Use proper schema migrations rather than creating incompatible tables on startup after the MVP. Store uploads outside public static directories; serve registered preview images through safe scoped endpoints.
+`backend/app/storage.py` owns SQLite schema versioning (`PRAGMA user_version`). Before pending migration work, it creates a timestamped SQLite backup beside the database using SQLite's backup API. Each migration runs under `BEGIN IMMEDIATE`; statements are executed individually with `execute()` rather than `executescript()`, and DDL plus `user_version` commit or roll back together. Migration 1 creates the profile/sample tables and indexes with `CREATE TABLE IF NOT EXISTS` for the existing Stage 1 template table, preserving its rows. The first connection to a new DB creates schema without a backup because no prior database exists. The default database is `backend/data/paper-templates.sqlite3`; `INKMATCH_DATABASE` can override it for local runs and isolated tests. Image upload API files are not implemented yet; when added, files remain outside public static directories and are served only through scoped APIs.
+
+Coverage thresholds live in `backend/app/coverage_thresholds.json`; the current values are configurable defaults only. No coverage UI or coverage calculation is implemented yet.
 
 ## 9. Development environment and commands
 Suggested repo structure:
@@ -236,7 +242,7 @@ During initial setup Codex should create documented commands for `dev`, `lint`, 
 - **Physical:** at least one actual A4 ruled sheet in Stage 1, then repeat print tests after calibration implementation. Record printer settings, selected page size, and baseline offsets in mm.
 
 ## 11. Decisions/constraints for Codex
-- Begin Stage 1 only; do not implement fake stylus collection or pretend AI personalization exists.
+- Stage 1 software is implemented; physical alignment remains unverified. Stage 2 is in progress only within the authorized run/task. Do not implement fake stylus collection or pretend AI personalization exists.
 - At the start of implementation, write an actionable, concise task plan and state any assumptions. Preserve the four-stage interface contracts.
 - Introduce libraries only when they solve a concrete requirement; explain large dependencies.
 - Favor end-to-end working flows over large unfinished UI surfaces.
