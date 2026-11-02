@@ -7,6 +7,7 @@ import {
 } from "../../shared/layout";
 import {
   exportPdf,
+  calibrationPdf,
   getHealth,
   detectPaper,
   suggestLines,
@@ -25,6 +26,7 @@ type Workspace = {
   custom: [number, number];
 };
 type SavedTemplate = { name: string; workspace: Workspace };
+type Calibration = { name: string; offset_x_mm: number; offset_y_mm: number };
 const initialWorkspace: Workspace = {
   settings: defaults,
   source: "A clear page, written with intention.\n\nx^2 + y^2 = z^2",
@@ -67,6 +69,8 @@ export function useInkMatch() {
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
+  const [calibrations, setCalibrations] = useState<Calibration[]>([]);
+  const [calibrationName, setCalibrationName] = useState("My printer");
   const [templateName, setTemplateName] = useState("My paper");
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -101,8 +105,9 @@ export function useInkMatch() {
     Promise.all([
       readStored<Workspace>("draft"),
       readStored<SavedTemplate[]>("templates"),
+      readStored<Calibration[]>("calibrations"),
     ])
-      .then(([draft, saved]) => {
+      .then(([draft, saved, savedCalibrations]) => {
         if (!alive) return;
         if (draft?.settings)
           setWorkspace({
@@ -111,6 +116,8 @@ export function useInkMatch() {
             settings: { ...defaults, ...draft.settings, equation_mode: false },
           });
         if (Array.isArray(saved)) setTemplates(saved);
+        if (Array.isArray(savedCalibrations))
+          setCalibrations(savedCalibrations);
       })
       .catch(() => {
         if (alive)
@@ -303,6 +310,44 @@ export function useInkMatch() {
       setExporting(false);
     }
   };
+  const saveCalibration = async () => {
+    if (!calibrationName.trim())
+      return setNotice("Enter a printer profile name.");
+    const next = [
+      ...calibrations.filter((item) => item.name !== calibrationName.trim()),
+      {
+        name: calibrationName.trim(),
+        offset_x_mm: settings.offset_x_mm,
+        offset_y_mm: settings.offset_y_mm,
+      },
+    ];
+    try {
+      await writeStored("calibrations", next);
+      setCalibrations(next);
+      setNotice("Printer offsets saved in this browser.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Printer settings could not be saved.",
+      );
+    }
+  };
+  const downloadCalibration = async () => {
+    try {
+      const blob = await calibrationPdf(settings);
+      const anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = "inkmatch-calibration.pdf";
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+      setNotice("Calibration sheet downloaded. Print at Actual Size / 100%.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Calibration PDF failed.",
+      );
+    }
+  };
   const numeric = (
     key: keyof Settings,
     label: string,
@@ -333,6 +378,9 @@ export function useInkMatch() {
     setNotice,
     ready,
     templates,
+    calibrations,
+    calibrationName,
+    setCalibrationName,
     templateName,
     setTemplateName,
     suggestions,
@@ -351,6 +399,8 @@ export function useInkMatch() {
     saveTemplate,
     findLines,
     download,
+    saveCalibration,
+    downloadCalibration,
     numeric,
   };
 }

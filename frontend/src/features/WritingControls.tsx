@@ -16,7 +16,7 @@ export function WritingControls({
   } = editor;
   return (
     <aside className="control-panel">
-      <p className="eyebrow">02 / Writing Editor</p>
+      <p className="eyebrow">03 / Write and Edit</p>
       <h2>Words, placed with care.</h2>
       <label className="field">
         Your text

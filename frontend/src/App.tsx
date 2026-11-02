@@ -4,7 +4,12 @@ import { PaperCrop } from "./features/paper/PaperCrop";
 import { PaperSetupControls } from "./features/PaperSetupControls";
 import { WritingControls } from "./features/WritingControls";
 import { ExportControls } from "./features/ExportControls";
-const tabs = ["Paper Setup", "Writing Editor", "Preview and Export"];
+const tabs = [
+  "Select Your Paper",
+  "Configure Writing Area",
+  "Write and Edit",
+  "Preview and Export",
+];
 export function App() {
   const editor = useInkMatch();
   const {
@@ -64,7 +69,7 @@ export function App() {
             onClick={() => setActiveTab(index)}
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-                const next = (index + (event.key === "ArrowRight" ? 1 : 2)) % 3;
+                const next = (index + (event.key === "ArrowRight" ? 1 : 3)) % 4;
                 setActiveTab(next);
                 document.getElementById(`tab-${next}`)?.focus();
               }
@@ -121,10 +126,38 @@ export function App() {
               )}
               <div className="section-heading">
                 <div>
-                  <h2>Layout preview</h2>
+                  <h2>Physical sheet</h2>
                   <p>
-                    Green guides are for setup only and are excluded from the
-                    PDF.
+                    Confirm the crop, perspective and physical dimensions.
+                    Writing positions are configured in the next step.
+                  </p>
+                </div>
+              </div>
+              {acceptedImage ? (
+                <img
+                  className="paper-confirmed"
+                  src={acceptedImage}
+                  alt="Confirmed, perspective-corrected paper"
+                />
+              ) : (
+                <p className="empty-preview">
+                  Upload a paper photo to begin. The original remains available
+                  for recropping.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+        {activeTab === 1 && (
+          <>
+            <PaperSetupControls editor={editor} mode="writing-area" />
+            <div className="preview-area">
+              <div className="section-heading">
+                <div>
+                  <h2>Writing area</h2>
+                  <p>
+                    Drag the green edges and first baseline. Measurements remain
+                    in millimetres.
                   </p>
                 </div>
               </div>
@@ -133,11 +166,13 @@ export function App() {
                 image={acceptedImage}
                 settings={effectiveSettings}
                 guides
+                interactive
+                onGeometryChange={editor.updateSettings}
               />
             </div>
           </>
         )}
-        {activeTab === 1 && (
+        {activeTab === 2 && (
           <>
             <WritingControls editor={editor} />
             <div className="preview-area">
@@ -162,7 +197,7 @@ export function App() {
             </div>
           </>
         )}
-        {activeTab === 2 && (
+        {activeTab === 3 && (
           <>
             <ExportControls editor={editor} />
             <div className="preview-area">

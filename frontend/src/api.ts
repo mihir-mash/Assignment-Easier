@@ -74,3 +74,20 @@ export async function exportPdf(
     );
   return response.blob();
 }
+export async function calibrationPdf(settings: Settings): Promise<Blob> {
+  const response = await fetch("/api/v1/calibration/pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      width_mm: settings.width_mm,
+      height_mm: settings.height_mm,
+      offset_x_mm: settings.offset_x_mm,
+      offset_y_mm: settings.offset_y_mm,
+    }),
+  });
+  if (!response.ok)
+    throw new Error(
+      "Calibration PDF could not be prepared. Check page dimensions and backend status.",
+    );
+  return response.blob();
+}

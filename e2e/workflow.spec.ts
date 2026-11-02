@@ -19,10 +19,9 @@ test("live geometry, equations, tabs, custom PDF export and persisted draft", as
     .selectOption("Custom");
   await page.getByLabel("Custom width (mm)").fill("160");
   await page.getByLabel("Custom height (mm)").fill("220");
-  await expect(
-    page.getByRole("img", { name: "Document page 1" }),
-  ).toHaveAttribute("viewBox", "0 0 160 220");
-  await page.getByRole("tab", { name: /Writing Editor/ }).click();
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
+  await expect(page.locator(".page")).toHaveAttribute("viewBox", "0 0 160 220");
+  await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await expect(page.getByLabel("Equation Mode")).not.toBeChecked();
   const source =
     "Ordinary words and punctuation, x^2 + y^2 = z^2.\nSecond line.";
@@ -54,6 +53,19 @@ test("live geometry, equations, tabs, custom PDF export and persisted draft", as
     "data-x-mm",
     "22",
   );
+  await page.getByLabel("Printer profile name").fill("InkMatch test printer");
+  await page.getByRole("button", { name: "Save current X/Y offsets" }).click();
+  await expect(page.getByRole("status")).toContainText("Printer offsets saved");
+  const calibration = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download calibration PDF" }).click();
+  expect((await calibration).suggestedFilename()).toBe(
+    "inkmatch-calibration.pdf",
+  );
+  await page.getByLabel("X offset (mm)").fill("4");
+  await page
+    .getByLabel("Saved printer profile")
+    .selectOption("InkMatch test printer");
+  await expect(page.getByLabel("X offset (mm)")).toHaveValue("2");
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download ink-only PDF" }).click();
   const download = await downloaded;
@@ -73,11 +85,11 @@ test("live geometry, equations, tabs, custom PDF export and persisted draft", as
     ),
   ).toBeTruthy();
   await page.screenshot({ path: "tmp/qa/mobile-export.png", fullPage: true });
-  await page.getByRole("tab", { name: /Writing Editor/ }).click();
+  await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await expect(page.getByLabel("Your text")).toHaveValue(source);
   await page.waitForTimeout(600);
   await page.reload();
-  await page.getByRole("tab", { name: /Writing Editor/ }).click();
+  await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await expect(page.getByLabel("Your text")).toHaveValue(source);
   await expect(page.getByLabel("Equation Mode")).not.toBeChecked();
   expect(errors).toEqual([]);
@@ -105,6 +117,10 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   ).toBeVisible();
   await expect(page.locator(".page image")).toHaveCount(0);
   await page.getByRole("button", { name: "Accept crop" }).click();
+  await expect(
+    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
   await expect(page.locator(".page image")).toHaveCount(1);
   await page.getByLabel("Template name").fill("Desk photograph");
   await page
@@ -113,16 +129,19 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   await expect(page.getByRole("status")).toContainText(
     "Template saved locally",
   );
-  await page.getByRole("tab", { name: /Writing Editor/ }).click();
+  await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await page.getByLabel("Your text").fill("A line on real paper.\n".repeat(80));
   expect(await page.locator(".page").count()).toBeGreaterThan(1);
   await expect(page.locator(".page image")).toHaveCount(
     await page.locator(".page").count(),
   );
   await page.screenshot({ path: "tmp/qa/desktop-pages.png", fullPage: false });
-  await page.getByRole("tab", { name: /Paper Setup/ }).click();
+  await page.getByRole("tab", { name: /Select Your Paper/ }).click();
   await page.getByRole("button", { name: "Reset to original" }).click();
-  await expect(page.locator(".page image")).toHaveCount(0);
+  await expect(
+    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
   await page.getByLabel("Load a template").selectOption("Desk photograph");
   await expect(page.locator(".page image")).toHaveCount(
     await page.locator(".page").count(),
@@ -130,6 +149,7 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   const pageCount = await page.locator(".page").count();
   await page.waitForTimeout(600);
   await page.reload();
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
   await expect(page.locator(".page image")).toHaveCount(pageCount);
 });
 
@@ -139,7 +159,7 @@ test("offline preview stays reactive and plain prose remains intact", async ({
   await page.route("**/api/**", (route) => route.abort());
   await page.goto("/");
   await expect(page.getByText("Offline editing available")).toBeVisible();
-  await page.getByRole("tab", { name: /Writing Editor/ }).click();
+  await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await page.getByLabel("Your text").fill("Hello, this is ordinary prose!");
   await page.getByLabel("Equation Mode").check();
   await expect(page.locator(".ink")).toHaveAttribute(
@@ -152,6 +172,57 @@ test("offline preview stays reactive and plain prose remains intact", async ({
     "font-size",
     "6",
   );
+});
+
+test("writing boundaries stay separate and can be dragged in physical page coordinates", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: /Select Your Paper/ }).click();
+  await expect(page.getByLabel("Left margin (mm)")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
+  const pageBox = await page.locator(".page").boundingBox();
+  if (!pageBox) throw new Error("Page preview is unavailable");
+  const dragHandle = async (
+    selector: string,
+    startXmm: number,
+    startYmm: number,
+    endXmm: number,
+    endYmm: number,
+  ) => {
+    const point = (xMm: number, yMm: number) => ({
+      clientX: pageBox.x + (pageBox.width * xMm) / 210,
+      clientY: pageBox.y + (pageBox.height * yMm) / 297,
+    });
+    await page.locator(selector).dispatchEvent("pointerdown", {
+      pointerId: 1,
+      ...point(startXmm, startYmm),
+    });
+    await page.locator(".page").dispatchEvent("pointermove", {
+      pointerId: 1,
+      ...point(endXmm, endYmm),
+    });
+    await page.locator(".page").dispatchEvent("pointerup", {
+      pointerId: 1,
+      ...point(endXmm, endYmm),
+    });
+  };
+  await dragHandle('[data-handle="first_baseline_mm"]', 100, 40, 100, 48);
+  await expect(page.getByLabel("First baseline (mm)")).toHaveValue("48");
+  await dragHandle('[data-handle="left_margin_mm"]', 20, 100, 25, 100);
+  await expect(page.getByLabel("Left margin (mm)")).toHaveValue("25");
+  await dragHandle('[data-handle="right_margin_mm"]', 190, 100, 188, 100);
+  await expect(page.getByLabel("Right margin (mm)")).toHaveValue("22");
+  await dragHandle('[data-handle="footer_margin_mm"]', 100, 279, 100, 277);
+  await expect(page.getByLabel("Footer exclusion (mm)")).toHaveValue("20");
+  const topBoundary = page.getByRole("slider", {
+    name: "Top writing boundary",
+  });
+  await topBoundary.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(page.getByLabel("Header exclusion (mm)")).toHaveValue("26");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("First baseline (mm)")).toHaveValue("48");
 });
 
 test("uncertain detection supports manual corners, rejects invalid crop, and invalidates edited crops", async ({
@@ -203,9 +274,13 @@ test("uncertain detection supports manual corners, rejects invalid crop, and inv
   await topLeft.getByLabel("Y (%)").fill("8.3");
   await page.getByRole("button", { name: "Preview corrected crop" }).click();
   await page.getByRole("button", { name: "Accept crop" }).click();
-  await expect(page.locator(".page image")).toHaveCount(1);
+  await expect(
+    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+  ).toBeVisible();
   await topLeft.getByLabel("X (%)").fill("24");
-  await expect(page.locator(".page image")).toHaveCount(0);
+  await expect(
+    page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
+  ).toHaveCount(0);
   expect(await page.locator("body").innerText()).not.toContain("\u2014");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(

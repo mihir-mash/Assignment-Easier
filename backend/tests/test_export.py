@@ -55,3 +55,15 @@ def test_export_page_count_and_glyph_origins_match_canonical_layout() -> None:
             assert actual[2]==pytest.approx(run['font_size_mm']*72/25.4,abs=.001)
     # Large negative offsets are explicitly blocked instead of producing clipped PDF ink.
     assert client.post('/api/v1/export/pdf',json={'source_text':'Visible','offset_x_mm':-30}).status_code==422
+
+
+def test_calibration_pdf_uses_selected_physical_size_and_applies_offsets() -> None:
+    client = TestClient(app)
+    response = client.post('/api/v1/calibration/pdf', json={'width_mm': 160, 'height_mm': 220, 'offset_x_mm': 2, 'offset_y_mm': -1})
+    assert response.status_code == 200
+    page = PdfReader(BytesIO(response.content)).pages[0]
+    assert float(page.mediabox.width) == pytest.approx(160*72/25.4, abs=.001)
+    assert float(page.mediabox.height) == pytest.approx(220*72/25.4, abs=.001)
+    assert '100 mm reference' in page.extract_text()
+    assert not list(page.images)
+    assert client.post('/api/v1/calibration/pdf', json={'width_mm': 50, 'height_mm': 50, 'offset_x_mm': 30}).status_code == 422

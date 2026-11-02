@@ -346,6 +346,15 @@ p.help,
   box-shadow: 0 8px 20px #3447311a;
   overflow: hidden;
 }
+.paper-confirmed {
+  display: block;
+  width: min(100%, 620px);
+  max-height: 78vh;
+  object-fit: contain;
+  margin: 0 auto;
+  box-shadow: 0 8px 20px #3447311a;
+  background: white;
+}
 .ink {
   font-family: InkMatchDemo;
   font-kerning: none;
@@ -361,6 +370,22 @@ p.help,
   stroke-width: 0.2;
   stroke-dasharray: 1 1;
   opacity: 0.6;
+}
+.edit-guides line {
+  stroke: #188458;
+  stroke-width: 1.4;
+  stroke-dasharray: 2 1;
+  pointer-events: stroke;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.edit-guides line[data-handle="left_margin_mm"],
+.edit-guides line[data-handle="right_margin_mm"] {
+  cursor: ew-resize;
+}
+.edit-guides .baseline-handle {
+  stroke: #bf6e37;
+  stroke-width: 1.8;
 }
 .empty-preview {
   padding: 100px 20px;

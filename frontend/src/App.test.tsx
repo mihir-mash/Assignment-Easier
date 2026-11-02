@@ -13,6 +13,7 @@ import { readStored, writeStored } from "./storage";
 beforeEach(async () => {
   await writeStored("draft", null);
   await writeStored("templates", []);
+  await writeStored("calibrations", []);
   localStorage.clear();
   vi.stubGlobal(
     "fetch",
@@ -33,7 +34,7 @@ async function openApp() {
 
 test("defaults Equation Mode off, toggles conservatively, and preserves source across tabs", async () => {
   await openApp();
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   const input = screen.getByLabelText("Your text");
   const source = "Ordinary prose, x^2 + y^2 = z^2.";
   fireEvent.change(input, { target: { value: source } });
@@ -46,7 +47,7 @@ test("defaults Equation Mode off, toggles conservatively, and preserves source a
   );
   expect(input).toHaveValue(source);
   fireEvent.click(screen.getByRole("tab", { name: /Preview and Export/ }));
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   expect(screen.getByLabelText("Your text")).toHaveValue(source);
   expect(screen.getByLabelText("Equation Mode")).toBeChecked();
   fireEvent.click(screen.getByLabelText("Equation Mode"));
@@ -64,17 +65,22 @@ test("custom dimensions are reactive, orientation swaps predictably and presets 
   fireEvent.change(screen.getByLabelText("Custom height (mm)"), {
     target: { value: "220" },
   });
-  expect(screen.getByRole("img", { name: "Document page 1" })).toHaveAttribute(
+  expect(screen.queryByLabelText("Left margin (mm)")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: /Configure Writing Area/ }));
+  expect(document.querySelector(".page")).toHaveAttribute(
     "viewBox",
     "0 0 160 220",
   );
+  fireEvent.click(screen.getByRole("tab", { name: /Select Your Paper/ }));
   fireEvent.change(screen.getByLabelText("Orientation"), {
     target: { value: "landscape" },
   });
-  expect(screen.getByRole("img", { name: "Document page 1" })).toHaveAttribute(
+  fireEvent.click(screen.getByRole("tab", { name: /Configure Writing Area/ }));
+  expect(document.querySelector(".page")).toHaveAttribute(
     "viewBox",
     "0 0 220 160",
   );
+  fireEvent.click(screen.getByRole("tab", { name: /Select Your Paper/ }));
   fireEvent.change(screen.getByLabelText("Paper size"), {
     target: { value: "A4" },
   });
@@ -92,7 +98,7 @@ test("custom dimensions are reactive, orientation swaps predictably and presets 
 
 test("writing controls immediately change SVG geometry, colour and slant while offline", async () => {
   await openApp();
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   fireEvent.change(screen.getByLabelText("Writing size (mm)"), {
     target: { value: "6" },
   });
@@ -116,6 +122,7 @@ test("writing controls immediately change SVG geometry, colour and slant while o
 
 test("local template saves reload settings and Equation Mode never resumes enabled", async () => {
   await openApp();
+  fireEvent.click(screen.getByRole("tab", { name: /Configure Writing Area/ }));
   fireEvent.change(screen.getByLabelText("Left margin (mm)"), {
     target: { value: "28" },
   });
@@ -128,14 +135,15 @@ test("local template saves reload settings and Equation Mode never resumes enabl
   expect(
     (await readStored<Array<{ name: string }>>("templates"))?.[0].name,
   ).toBe("My paper");
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   fireEvent.click(screen.getByLabelText("Equation Mode"));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 450));
   });
   cleanup();
   await openApp();
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Configure Writing Area/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   expect(screen.getByLabelText("Equation Mode")).not.toBeChecked();
 });
 
@@ -158,7 +166,7 @@ test("export failure and invalid uploads have visible errors", async () => {
 
 test("invalid draft geometry reloads with its source text intact", async () => {
   await openApp();
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   fireEvent.change(screen.getByLabelText("Your text"), {
     target: { value: "This source must survive invalid settings." },
   });
@@ -170,7 +178,7 @@ test("invalid draft geometry reloads with its source text intact", async () => {
   });
   cleanup();
   await openApp();
-  fireEvent.click(screen.getByRole("tab", { name: /Writing Editor/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Write and Edit/ }));
   expect(screen.getByLabelText("Your text")).toHaveValue(
     "This source must survive invalid settings.",
   );
