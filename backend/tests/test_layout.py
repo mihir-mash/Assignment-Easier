@@ -15,10 +15,10 @@ def test_equation_mode_changes_visual_tokens_without_changing_source_ranges() ->
 
 
 def test_layout_wraps_and_paginates_in_physical_mm() -> None:
-    pages = layout_document("word " * 250, LayoutSettings(first_baseline_mm=20, line_spacing_mm=10), 210, 50)
+    pages = layout_document("word " * 250, LayoutSettings(first_baseline_mm=20, header_margin_mm=10, line_spacing_mm=10), 210, 50)
     assert len(pages) > 1
     assert all(page.width_mm == 210 and page.height_mm == 50 for page in pages)
-    assert all(run.x_mm >= 22 for page in pages for run in page.runs)
+    assert all(run.x_mm >= 20 for page in pages for run in page.runs)
 
 
 def test_layout_endpoint_returns_a4_geometry() -> None:

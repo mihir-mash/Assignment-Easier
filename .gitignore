@@ -6,4 +6,6 @@ __pycache__/
 *.py[cod]
 .env
 backend/data/
-
+tmp/
+test-results/
+playwright-report/

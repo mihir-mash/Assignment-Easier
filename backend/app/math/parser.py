@@ -1,5 +1,6 @@
+"""Compatibility adapter for the shared equation parser."""
 from dataclasses import dataclass
-import re
+from app.layout.engine import run_shared
 
 
 @dataclass(frozen=True)
@@ -8,33 +9,13 @@ class VisualToken:
     source_start: int
     source_end: int
     kind: str
-    scale: float = 1.0
+    scale: float = 1
 
     @property
-    def source_range(self) -> tuple[int, int]:
-        return (self.source_start, self.source_end)
-
-
-_SUPERSCRIPTS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
-_SUBSCRIPTS = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
-_EXPRESSION = re.compile(r"(?P<base>[^\s^_])(?P<operator>[^\s])(?P<value>[A-Za-z0-9()+\-=])")
+    def source_range(self) -> tuple[int,int]:
+        return self.source_start,self.source_end
 
 
 def parse_visual_tokens(source_text: str, equation_mode: bool) -> list[VisualToken]:
-    if not equation_mode:
-        return [VisualToken(char, index, index + 1, "text") for index, char in enumerate(source_text)]
-
-    tokens: list[VisualToken] = []
-    index = 0
-    while index < len(source_text):
-        match = _EXPRESSION.match(source_text, index)
-        if match:
-            base, operator, value = match.group("base", "operator", "value")
-            translated = value.translate(_SUPERSCRIPTS if operator == "^" else _SUBSCRIPTS)
-            tokens.append(VisualToken(base, index, index + 1, "math"))
-            tokens.append(VisualToken(translated, index + 2, index + 3, "math", 0.72))
-            index += 3
-            continue
-        tokens.append(VisualToken(source_text[index], index, index + 1, "text"))
-        index += 1
-    return tokens
+    tokens = run_shared({'action':'parse','source_text':source_text,'equation_mode':equation_mode})
+    return [VisualToken(token['text'],*token['source_range'],token['kind'],token['scale']) for token in tokens]

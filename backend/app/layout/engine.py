@@ -1,20 +1,31 @@
-from dataclasses import dataclass
+"""Python adapter to the exact layout engine used offline in React."""
+from dataclasses import asdict, dataclass
+import json
+from pathlib import Path
+import subprocess
 
-from app.math.parser import VisualToken, parse_visual_tokens
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def run_shared(payload: dict[str, object]) -> object:
+    result = subprocess.run(['node', '--disable-warning=ExperimentalWarning', str(ROOT / 'shared/cli.ts')], input=json.dumps(payload), capture_output=True, text=True, encoding='utf-8', timeout=20, cwd=ROOT, check=True)
+    return json.loads(result.stdout)
 
 
 @dataclass(frozen=True)
 class LayoutSettings:
-    font_size_mm: float = 6.0
-    letter_spacing_mm: float = 0.4
-    word_spacing_mm: float = 1.4
-    first_baseline_mm: float = 45.0
+    font_size_mm: float = 5.0
+    letter_spacing_mm: float = .15
+    word_spacing_mm: float = .6
+    first_baseline_mm: float = 40.0
     line_spacing_mm: float = 8.0
-    left_margin_mm: float = 22.0
-    right_margin_mm: float = 18.0
+    left_margin_mm: float = 20.0
+    right_margin_mm: float = 20.0
     footer_margin_mm: float = 18.0
-    equation_mode: bool = True
-    ink_color: str = "#263832"
+    header_margin_mm: float = 25.0
+    equation_mode: bool = False
+    ink_color: str = '#263832'
+    slant_deg: float = 0.0
     offset_x_mm: float = 0.0
     offset_y_mm: float = 0.0
 
@@ -22,6 +33,7 @@ class LayoutSettings:
 @dataclass(frozen=True)
 class LayoutRun:
     text: str
+    draw_text: str
     x_mm: float
     baseline_y_mm: float
     width_mm: float
@@ -29,6 +41,7 @@ class LayoutRun:
     source_range: tuple[int, int]
     kind: str
     ink_color: str
+    slant_deg: float
 
 
 @dataclass(frozen=True)
@@ -40,38 +53,10 @@ class LayoutPage:
     warnings: list[str]
 
 
-def _token_width(token: VisualToken, settings: LayoutSettings) -> float:
-    if token.text == "\n":
-        return 0.0
-    base_width = settings.font_size_mm * (0.35 if token.text == " " else 0.55)
-    spacing = 0.0 if token.text == " " else settings.letter_spacing_mm
-    return (base_width + spacing) * token.scale + (settings.word_spacing_mm if token.text == " " else 0.0)
+def layout_result(source_text: str, settings: LayoutSettings, width_mm: float, height_mm: float) -> dict:
+    return run_shared({'source_text':source_text,'width_mm':width_mm,'height_mm':height_mm,**asdict(settings)})
 
 
-def layout_document(source_text: str, settings: LayoutSettings, width_mm: float = 210.0, height_mm: float = 297.0) -> list[LayoutPage]:
-    tokens = parse_visual_tokens(source_text, settings.equation_mode)
-    usable_right = width_mm - settings.right_margin_mm
-    baseline_y = settings.first_baseline_mm + settings.offset_y_mm
-    x_mm = settings.left_margin_mm + settings.offset_x_mm
-    page_index = 0
-    pages: list[LayoutPage] = [LayoutPage(page_index, width_mm, height_mm, [], [])]
-
-    def new_line() -> None:
-        nonlocal baseline_y, x_mm, page_index
-        baseline_y += settings.line_spacing_mm
-        x_mm = settings.left_margin_mm + settings.offset_x_mm
-        if baseline_y > height_mm - settings.footer_margin_mm:
-            page_index += 1
-            baseline_y = settings.first_baseline_mm + settings.offset_y_mm
-            pages.append(LayoutPage(page_index, width_mm, height_mm, [], []))
-
-    for token in tokens:
-        if token.text == "\n":
-            new_line()
-            continue
-        token_width = _token_width(token, settings)
-        if x_mm + token_width > usable_right and x_mm > settings.left_margin_mm + settings.offset_x_mm:
-            new_line()
-        pages[-1].runs.append(LayoutRun(token.text, x_mm, baseline_y, token_width, settings.font_size_mm * token.scale, (token.source_start, token.source_end), token.kind, settings.ink_color))
-        x_mm += token_width
-    return pages
+def layout_document(source_text: str, settings: LayoutSettings, width_mm: float = 210, height_mm: float = 297) -> list[LayoutPage]:
+    result = layout_result(source_text,settings,width_mm,height_mm)
+    return [LayoutPage(page['page_index'],page['width_mm'],page['height_mm'],[LayoutRun(**run) for run in page['runs']],result['warnings']) for page in result['pages']]

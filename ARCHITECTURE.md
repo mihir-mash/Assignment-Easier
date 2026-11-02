@@ -41,6 +41,16 @@ Do not add cloud AI APIs, authentication or heavy external infrastructure withou
 - `calibration/`: Stage 1 manual XY offsets; Stage 4 printer-specific transforms.
 
 ## 3. Golden rule: one authoritative layout
+
+### Implemented Stage 1 correction (November 2026)
+
+The authoritative algorithm now lives in `shared/layout.ts` and `shared/equations.ts`. React invokes this pure module synchronously for immediate offline preview. FastAPI invokes the exact same module through a fixed-path Node.js 24+ stdin/JSON adapter for `/api/v1/layout` and PDF export. This supersedes the earlier Python approximation and independent frontend fallback. There is still one parser, one metrics table, and one wrapping/pagination implementation, rather than separately maintained frontend/backend algorithms. No user input is evaluated as code.
+
+`frontend/src/useInkMatch.tsx` owns session state, hydration, image workflow and local persistence; tab controls and SVG painting are separate components. Preview SVG viewBoxes use selected page mm dimensions and paint every positioned glyph without CSS wrapping. Export requests capture source/settings, recompute using the identical engine, and ReportLab draws these runs in points with the same font, per-glyph transforms and source ranges. Font metrics are generated from the redistributed Bitstream Vera italic font by `scripts/prepare_font.py`; explicit warnings identify missing glyphs. Neither PDF drawing nor page layout accepts a paper background image.
+
+Paper APIs are implemented separately: `POST /api/v1/paper/detect`, `/crop`, and `/lines`. OpenCV contour/threshold suggestions never constitute accepted boundaries. The user reviews four normalized original-image corners and a homography crop at the confirmed physical aspect ratio, then explicitly accepts it. Line analysis only examines the corrected sheet. Manual edits invalidate the old accepted crop; original images remain available for reprocessing. Upload contents, decoded dimensions, corner winding/convexity, size and physical dimensions are validated.
+
+Drafts/templates currently persist in browser IndexedDB, including original/corrected image data and corner/physical geometry, rather than expired blob URLs. Existing legacy numeric settings are read without destructive migration. Equation Mode is session-only and starts OFF. SQLite-backed repositories remain a future Stage 1 extension; browser persistence is explicitly documented. No photos or document text go to third-party services. Python dependencies are pinned and hash-locked; frontend resolution is in `package-lock.json`.
 Frontend should not independently make its own PDF pagination decisions. Backend creates a deterministic `LayoutDocument` with physical coordinates; frontend paints it on the uploaded paper and PDF exporter consumes the same result. Draft updates can be debounced (e.g., 100–250 ms) with cancellation of stale responses. Responses can be cached using a stable document/template/settings revision hash.
 
 Coordinate spaces:
@@ -144,7 +154,7 @@ Final DTOs may be implemented in Pydantic and generated/shared as TS types; main
 
 ## 5. API proposal (version 1)
 
-Implemented baseline: `GET /api/v1/health`, `POST /api/v1/layout`, and `POST /api/v1/export/pdf` are available in the local FastAPI app. The layout endpoint accepts source text plus Stage 1 physical-mm settings and returns positioned runs/pages; PDF export consumes those same runs and never includes a paper image. The frontend preview still needs to consume the layout response directly.
+Implemented: `GET /api/v1/health`, `POST /api/v1/layout`, `POST /api/v1/export/pdf`, and the three paper processing routes described above. Layout/export accept validated snake_case source/settings DTOs, including physical dimensions, spacing, colour, slant, exclusions and XY offsets. Responses include positioned pages/runs and warnings. The browser and API both execute the same shared engine; live editing does not wait for API responses. The remaining repository API proposal below is planned, not implemented.
 
 | Endpoint | Purpose |
 | --- | --- |
