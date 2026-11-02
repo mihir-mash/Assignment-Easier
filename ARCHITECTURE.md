@@ -1,0 +1,232 @@
+# InkMatch — Technical Architecture
+
+**Approach:** Web-first, modular and testable. Stage 1 is a real end-to-end document/printing vertical slice, not a fake UI. Future handwriting synthesis and printer integration attach via stable adapters.
+
+## 1. Stack and roles
+
+| Layer | Preferred technology | Responsibility |
+| --- | --- | --- |
+| Web | React + TypeScript + Vite | Editor, input controls, upload, preview, template and profile management |
+| UI | Tailwind CSS | Responsive, accessible component styling |
+| Overlay | SVG and/or HTML Canvas | Paper-image background; line, margin and glyph overlays; coordinate tools |
+| API | Python 3.11+ / FastAPI + Pydantic | Validation, image analysis, deterministic layout endpoint, PDF generation |
+| CV | OpenCV + Pillow + NumPy | Image preprocessing, perspective alignment, best-effort paper-line detection |
+| PDF | PyMuPDF or ReportLab (select one and document reason) | Ink-only PDF in physical coordinates |
+| Persistence | SQLite + local files initially | Templates, documents, profile metadata; optional assets in controlled directory |
+| Later ML | PyTorch with isolated synthesis adapter | Personal glyph rendering and higher-fidelity handwriting |
+| Stylus | Browser Pointer Events (Stage 2) | Pen/mouse/touch stroke samples, timestamps, optional pressure |
+| Printer | PDF download first; optional Windows bridge later | Print calibration and per-printer settings |
+| Tests | Vitest + React Testing Library; pytest; Playwright for key flows | Deterministic functional and integration coverage |
+
+Do not add cloud AI APIs, authentication or heavy external infrastructure without explicit approval. Prefer a local FastAPI backend during initial development. Keep deployment flexibility.
+
+## 2. Modules
+
+### Frontend
+- `features/paper/`: upload, preview, perspective/crop, automatic suggestions and manual boundary/line editing.
+- `features/editor/`: source text editing, live handwriting preview, layout settings, equation toggle, pagination.
+- `features/export/`: ink-only PDF download, print instructions, simple manual offset adjustments.
+- `features/profiles/`: Stage 2 guided stylus/notes acquisition and coverage.
+- `shared/api/`: typed API client with validation/errors.
+- `shared/coordinates/`: physical mm ↔ normalized page ↔ on-screen conversions, used for display only.
+
+### Backend
+- `api/`: versioned routes and request validation.
+- `paper/`: preprocessing, CV-assisted line detection and storage of confirmed page geometry.
+- `math/`: pure, tested parser transforming supported source tokens into render runs (not a full LaTeX engine).
+- `layout/`: source text + style metrics + page template → canonical positioned runs and pages.
+- `renderers/`: Stage 1 demo font renderer; later personal glyph and synthesis adapters.
+- `pdf/`: PDF drawing from **canonical positioned runs**, not rewrapped raw text.
+- `storage/`: SQLite repositories and asset paths.
+- `calibration/`: Stage 1 manual XY offsets; Stage 4 printer-specific transforms.
+
+## 3. Golden rule: one authoritative layout
+Frontend should not independently make its own PDF pagination decisions. Backend creates a deterministic `LayoutDocument` with physical coordinates; frontend paints it on the uploaded paper and PDF exporter consumes the same result. Draft updates can be debounced (e.g., 100–250 ms) with cancellation of stale responses. Responses can be cached using a stable document/template/settings revision hash.
+
+Coordinate spaces:
+1. **Image pixels**: original camera scan.
+2. **Page millimeters**: physical paper space; origin at top-left, x right, y down.
+3. **Viewport CSS pixels**: scaled/translated view of mm coordinates.
+4. **PDF points**: 72 points/inch; convert via `pt = mm * 72 / 25.4` and flip Y only if required by the library.
+
+Never save the physical positioning based solely on current browser zoom or CSS pixel values. Apply perspective transform during paper image registration, not as a hidden PDF offset.
+
+## 4. Key data contracts (conceptual TypeScript shapes)
+
+```ts
+type Id = string;
+type Mm = number;
+
+type PageSize = { widthMm: Mm; heightMm: Mm; orientation: 'portrait' | 'landscape' };
+type RectMm = { x: Mm; y: Mm; width: Mm; height: Mm };
+
+type PaperTemplate = {
+  id: Id;
+  name: string;
+  pageSize: PageSize;
+  backgroundAssetId: Id;             // preview only, NEVER PDF print layer
+  registration: { sourceWidthPx: number; sourceHeightPx: number; pageCornersPx?: [number, number][] };
+  writableRegionMm: RectMm;
+  excludedRegionsMm: RectMm[];
+  baselineYsMm: Mm[];               // explicit positions, or derived from rule below
+  rule?: { firstBaselineMm: Mm; stepMm: Mm; count: number };
+  firstPageVariantId?: Id;
+  continuationVariantId?: Id;
+  revision: number;
+};
+
+type DocumentSettings = {
+  fontSizeMm: Mm;
+  letterSpacingMm: Mm;
+  wordSpacingMm: Mm;
+  slantDeg: number;
+  inkColor: string;                 // validated hex color
+  paragraphGapLines: number;
+  indentationMm: Mm;
+  baselineShiftMm: Mm;
+  variationStrength: number;        // unused by Stage 1 demo renderer
+  equationMode: boolean;
+  offsetXmm: Mm;                   // simple Stage 1 manual correction
+  offsetYmm: Mm;
+  seed: number;                     // stable for repeatable variations
+};
+
+type HandwritingProfile = {
+  id: Id;
+  name: string;
+  status: 'demo' | 'glyph' | 'synthesized';
+  availableCharacters: string[];
+  sampleCountByCharacter?: Record<string, number>;
+  styleAssetIds?: Id[];
+  rendererVersion: string;
+};
+
+type DocumentDraft = {
+  id: Id;
+  title: string;
+  templateId: Id;
+  profileId: Id;
+  sourceText: string;              // always immutable under math toggle except user edits
+  settings: DocumentSettings;
+  revision: number;
+};
+
+type RenderRun = {
+  kind: 'text' | 'math' | 'glyph';
+  sourceRange: [number, number];
+  text: string;
+  xMm: Mm;
+  baselineYMm: Mm;
+  widthMm: Mm;
+  fontSizeMm: Mm;
+  inkColor: string;
+  // Stage 2+: glyph IDs/stroke paths or positioned glyph array
+};
+
+type LayoutPage = {
+  pageIndex: number;
+  pageSize: PageSize;
+  templateId: Id;
+  runs: RenderRun[];
+  warnings: { code: string; message: string }[];
+};
+
+type LayoutDocument = {
+  draftId: Id;
+  draftRevision: number;
+  rendererVersion: string;
+  pages: LayoutPage[];
+  unsupportedCharacters: string[];
+};
+```
+
+Final DTOs may be implemented in Pydantic and generated/shared as TS types; maintain exact schema parity, typed IDs, validation and API versioning. Renderer-specific shape/stroke representation can be added without changing the public editor contract.
+
+## 5. API proposal (version 1)
+
+Implemented baseline: `GET /api/v1/health`, `POST /api/v1/layout`, and `POST /api/v1/export/pdf` are available in the local FastAPI app. The layout endpoint accepts source text plus Stage 1 physical-mm settings and returns positioned runs/pages; PDF export consumes those same runs and never includes a paper image. The frontend preview still needs to consume the layout response directly.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/paper/analyze` | Receive image and known dimensions; return best-effort detected lines/margins with confidence, no irreversible edits |
+| `POST /api/v1/paper/templates` | Save manually verified template, its geometry and background reference |
+| `GET /api/v1/paper/templates/{id}` | Load template |
+| `PUT /api/v1/paper/templates/{id}` | Save explicitly revised template |
+| `POST /api/v1/documents` | Create draft and settings |
+| `GET /api/v1/documents/{id}` | Retrieve draft |
+| `PUT /api/v1/documents/{id}` | Persist source and settings |
+| `POST /api/v1/layout` | Return canonical pages/runs from a draft or supplied document payload |
+| `POST /api/v1/export/pdf` | Render *the exact layout revision* to ink-only PDF |
+| `GET /api/v1/health` | Health check |
+| `POST /api/v1/profiles/...` | Stage 2+ acquisition endpoints, not required in Stage 1 |
+
+For files, impose MIME/type/size limits, validate magic bytes, normalize orientation and protect asset paths; never trust client-supplied filesystem paths. No arbitrary code execution from content. Avoid saving blank-paper images in PDFs.
+
+## 6. Math conversion strategy
+Treat source text as canonical. When Equation Mode is enabled, run a limited parser into styled tokens/runs; it can use superscript/subscript glyphs when supported or explicit raised/lowered positioned runs. Preserve precedence and source ranges. For example:
+- Input `x^2 + y^2 = z^2`, ON → visual `x² + y² = z²`.
+- Same source, OFF → visual `x^2 + y^2 = z^2`.
+- Input `a_1` ON → visual `a₁`; OFF → `a_1`.
+- Unsupported syntax remains readable with a warning; never silently erase or reinterpret unrelated caret uses.
+Ensure PDF and preview receive identical math runs.
+
+## 7. Rendering adapters and upgrade path
+
+```py
+class HandwritingRenderer(Protocol):
+    def measure(self, text_or_tokens, style) -> list[float]: ...
+    def render_layout_assets(self, positioned_runs, profile_id) -> object: ...
+
+# Stage 1: DemoFontRenderer
+# Stage 2: MultiVariantGlyphRenderer
+# Stage 3: ContextAwareSynthesisRenderer
+```
+
+Separately model layout geometry (width, baseline) from visual drawing paths or font assets. Rendering a new sample must not unexpectedly change line wrapping between preview and PDF. Use deterministic seed + cached assets for natural variations.
+
+## 8. Storage sketch
+- `paper_templates`: id, name, dimensions, geometry JSON, image asset reference, revisions.
+- `documents`: id, template_id, profile_id, source_text, settings JSON, revision, timestamps.
+- `handwriting_profiles`: id, name, status, coverage JSON, asset references, revisions.
+- `handwriting_samples` (Stage 2): profile_id, prompted text, kind, stroke/image asset, metadata, quality flags.
+- `printer_profiles` (Stage 4): identifier, template/sheet association, settings, calibration matrix, uncertainty.
+
+Use proper schema migrations rather than creating incompatible tables on startup after the MVP. Store uploads outside public static directories; serve registered preview images through safe scoped endpoints.
+
+## 9. Development environment and commands
+Suggested repo structure:
+
+```text
+inkmatch/
+  PROJECT_SPEC.md
+  ARCHITECTURE.md
+  AGENTS.md
+  README.md
+  .gitignore
+  frontend/
+    src/features/{paper,editor,export,profiles}/
+    src/shared/{api,coordinates}/
+    tests/
+  backend/
+    app/{api,paper,math,layout,renderers,pdf,storage,calibration}/
+    tests/
+  fixtures/
+    paper/
+    layout/
+  scripts/
+```
+
+During initial setup Codex should create documented commands for `dev`, `lint`, `typecheck`, `test`, and relevant backend checks. Pin dependencies with lockfiles. Default ports and dev proxy should be explicit in README. Never write secrets into frontend source.
+
+## 10. Testing
+- **Unit:** mm/pt transforms, line positions, no-print rectangles, wrapping, pagination, math toggle, rendering metrics, deterministic layout.
+- **Integration:** upload → template corrections → text edit → layout → download ink-only PDF, verify PDF media boxes and absence of background images.
+- **Browser E2E:** save/reload template and draft; verify live preview; math mode on/off; download PDF.
+- **Visual fixtures:** representative ruled paper and headers; compare bounding boxes, not screenshot-only accuracy.
+- **Physical:** at least one actual A4 ruled sheet in Stage 1, then repeat print tests after calibration implementation. Record printer settings, selected page size, and baseline offsets in mm.
+
+## 11. Decisions/constraints for Codex
+- Begin Stage 1 only; do not implement fake stylus collection or pretend AI personalization exists.
+- At the start of implementation, write an actionable, concise task plan and state any assumptions. Preserve the four-stage interface contracts.
+- Introduce libraries only when they solve a concrete requirement; explain large dependencies.
+- Favor end-to-end working flows over large unfinished UI surfaces.

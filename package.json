@@ -1,0 +1,32 @@
+{
+  "name": "inkmatch",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "vite --config frontend/vite.config.ts",
+    "dev:backend": "python -m uvicorn app.main:app --reload --app-dir backend --port 8000",
+    "build": "tsc -p frontend/tsconfig.json && vite build --config frontend/vite.config.ts",
+    "lint": "tsc -p frontend/tsconfig.json --noEmit",
+    "typecheck": "tsc -p frontend/tsconfig.json --noEmit",
+    "test": "vitest run --config frontend/vitest.config.ts",
+    "test:backend": "python -m pytest backend/tests -q"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "vite": "^7.1.7",
+    "typescript": "^5.9.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "vitest": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/jest-dom": "^6.8.0"
+  }
+}
