@@ -1,6 +1,14 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class ExclusionZoneRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    x_mm: float = Field(ge=0, le=1000)
+    y_mm: float = Field(ge=0, le=1000)
+    width_mm: float = Field(gt=0, le=1000)
+    height_mm: float = Field(gt=0, le=1000)
+
+
 class LayoutRequest(BaseModel):
     model_config = ConfigDict(extra='forbid',allow_inf_nan=False)
     source_text: str = Field(default='',max_length=20000)
@@ -20,6 +28,8 @@ class LayoutRequest(BaseModel):
     slant_deg: float = Field(default=0,ge=-25,le=25)
     offset_x_mm: float = Field(default=0,ge=-30,le=30)
     offset_y_mm: float = Field(default=0,ge=-30,le=30)
+    line_baselines_mm: list[float] = Field(default_factory=list, max_length=200)
+    exclusion_zones_mm: list[ExclusionZoneRequest] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode='after')
     def validate_geometry(self) -> 'LayoutRequest':
@@ -29,6 +39,14 @@ class LayoutRequest(BaseModel):
             raise ValueError('First baseline must fit between the header and footer with room for letters.')
         if self.line_spacing_mm < self.font_size_mm*1.25:
             raise ValueError('Line spacing must be at least 1.25 times writing size.')
+        if self.line_baselines_mm:
+            if any(y < self.header_margin_mm+self.font_size_mm or y+self.font_size_mm*.3 > self.height_mm-self.footer_margin_mm for y in self.line_baselines_mm):
+                raise ValueError('Individual baselines must stay inside writable top and bottom boundaries.')
+            if any(second-first < self.font_size_mm*1.25 for first,second in zip(self.line_baselines_mm,self.line_baselines_mm[1:])):
+                raise ValueError('Individual baselines must be ordered and spaced apart.')
+        for zone in self.exclusion_zones_mm:
+            if zone.x_mm+zone.width_mm > self.width_mm or zone.y_mm+zone.height_mm > self.height_mm:
+                raise ValueError('Exclusion zones must stay inside the physical paper.')
         return self
 
 

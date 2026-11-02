@@ -100,20 +100,31 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
 }) => {
   await page.goto("/");
   await expect(page.getByText("Local backend connected")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Prepare your sheet, compose on the page, then print only the ink.",
+    ),
+  ).toBeVisible();
   await page
     .getByLabel(/Upload paper photo/)
     .setInputFiles("tmp/qa/paper-on-desk.png");
   await expect(
-    page.getByRole("button", { name: "Preview corrected crop" }),
+    page.getByRole("button", { name: "Preview Corrected Crop" }),
   ).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Suggested boundary");
   await page
     .getByRole("button", { name: "Top left corner", exact: true })
     .focus();
   await page.keyboard.press("ArrowRight");
-  await page.getByRole("button", { name: "Preview corrected crop" }).click();
+  const adjustedCorner = await page.getByLabel("X (%)").first().inputValue();
+  await page.getByRole("button", { name: "Preview Corrected Crop" }).click();
+  await expect(page.locator(".crop-photo img")).toHaveCount(1);
+  await expect(page.locator(".crop-photo")).toHaveCount(1);
+  await page.getByRole("button", { name: "Back to Adjust Crop" }).click();
+  await expect(page.getByLabel("X (%)").first()).toHaveValue(adjustedCorner);
+  await page.getByRole("button", { name: "Preview Corrected Crop" }).click();
   await expect(
-    page.getByRole("img", { name: "Corrected crop awaiting confirmation" }),
+    page.getByRole("img", { name: "Corrected paper preview" }),
   ).toBeVisible();
   await expect(page.locator(".page image")).toHaveCount(0);
   await page.getByRole("button", { name: "Accept crop" }).click();
@@ -122,13 +133,12 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
   ).toBeVisible();
   await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
   await expect(page.locator(".page image")).toHaveCount(1);
-  await page.getByLabel("Template name").fill("Desk photograph");
+  const templateName = `Desk photograph ${Date.now()}`;
+  await page.getByLabel("Template name").fill(templateName);
   await page
     .getByRole("button", { name: "Save template", exact: true })
     .click();
-  await expect(page.getByRole("status")).toContainText(
-    "Template saved locally",
-  );
+  await expect(page.getByRole("status")).toContainText("Template saved");
   await page.getByRole("tab", { name: /Write and Edit/ }).click();
   await page.getByLabel("Your text").fill("A line on real paper.\n".repeat(80));
   expect(await page.locator(".page").count()).toBeGreaterThan(1);
@@ -142,10 +152,18 @@ test("photo upload, manual correction, reviewed crop, saved template and multipa
     page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: /Configure Writing Area/ }).click();
-  await page.getByLabel("Load a template").selectOption("Desk photograph");
+  const savedTemplateOption = page
+    .getByLabel("Load a template")
+    .locator("option")
+    .filter({ hasText: templateName });
+  await page
+    .getByLabel("Load a template")
+    .selectOption((await savedTemplateOption.getAttribute("value")) ?? "");
   await expect(page.locator(".page image")).toHaveCount(
     await page.locator(".page").count(),
   );
+  await page.getByRole("button", { name: "Update selected template" }).click();
+  await expect(page.getByRole("status")).toContainText("Template updated");
   const pageCount = await page.locator(".page").count();
   await page.waitForTimeout(600);
   await page.reload();
@@ -221,8 +239,20 @@ test("writing boundaries stay separate and can be dragged in physical page coord
   await topBoundary.focus();
   await page.keyboard.press("ArrowUp");
   await expect(page.getByLabel("Header exclusion (mm)")).toHaveValue("26");
+  await page
+    .getByRole("button", { name: "Configure individual baselines" })
+    .click();
+  await expect(page.getByLabel("Line 1 baseline (mm)")).toHaveValue("48");
+  await page.getByLabel("Line 2 baseline (mm)").fill("57");
+  await page.getByRole("button", { name: "Add zone" }).click();
+  await expect(page.locator(".exclusion-zone")).toHaveCount(1);
+  await page.getByLabel("Left (mm)").last().fill("60");
+  await page.getByRole("button", { name: "Add zone" }).click();
+  await expect(page.locator(".exclusion-zone")).toHaveCount(2);
+  await page.getByRole("button", { name: "Delete zone" }).last().click();
+  await expect(page.locator(".exclusion-zone")).toHaveCount(1);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByLabel("First baseline (mm)")).toHaveValue("48");
+  await expect(page.getByLabel("Line 1 baseline (mm)")).toHaveValue("48");
 });
 
 test("uncertain detection supports manual corners, rejects invalid crop, and invalidates edited crops", async ({
@@ -268,16 +298,21 @@ test("uncertain detection supports manual corners, rejects invalid crop, and inv
   const topLeft = page.getByRole("group", { name: groups[0], exact: true });
   await topLeft.getByLabel("X (%)").fill("95");
   await topLeft.getByLabel("Y (%)").fill("95");
-  await page.getByRole("button", { name: "Preview corrected crop" }).click();
+  await page.getByRole("button", { name: "Preview Corrected Crop" }).click();
   await expect(page.getByRole("status")).toContainText("non-crossing");
   await topLeft.getByLabel("X (%)").fill("23.7");
   await topLeft.getByLabel("Y (%)").fill("8.3");
-  await page.getByRole("button", { name: "Preview corrected crop" }).click();
+  await page.getByRole("button", { name: "Preview Corrected Crop" }).click();
   await page.getByRole("button", { name: "Accept crop" }).click();
   await expect(
     page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
   ).toBeVisible();
-  await topLeft.getByLabel("X (%)").fill("24");
+  await page.getByRole("tab", { name: /Select Your Paper/ }).click();
+  const restoredTopLeft = page.getByRole("group", {
+    name: groups[0],
+    exact: true,
+  });
+  await restoredTopLeft.getByLabel("X (%)").fill("24");
   await expect(
     page.getByRole("img", { name: "Confirmed, perspective-corrected paper" }),
   ).toHaveCount(0);

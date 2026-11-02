@@ -13,12 +13,25 @@ export type Suggestions = {
   message: string;
 };
 
-async function request<T>(path: string, payload?: object): Promise<T> {
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(
+  path: string,
+  payload?: object,
+  method = "POST",
+): Promise<T> {
   const response = await fetch(
     `/api/v1/${path}`,
     payload
       ? {
-          method: "POST",
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(20000),
@@ -29,10 +42,11 @@ async function request<T>(path: string, payload?: object): Promise<T> {
     const body: unknown = await response.json().catch(() => null);
     const detail =
       body && typeof body === "object" && "detail" in body ? body.detail : null;
-    throw new Error(
+    throw new ApiError(
       typeof detail === "string"
         ? detail
         : "Request failed. Check the image and settings, then try again.",
+      response.status,
     );
   }
   return response.json() as Promise<T>;
@@ -59,6 +73,29 @@ export const suggestLines = (
   width_mm: number,
   height_mm: number,
 ) => request<Suggestions>("paper/lines", { image, width_mm, height_mm });
+export type PaperTemplateSummary = {
+  id: string;
+  name: string;
+  updated_at: string;
+};
+export const listPaperTemplates = () =>
+  request<PaperTemplateSummary[]>("paper/templates");
+export const getPaperTemplate = (id: string) =>
+  request<{ id: string; name: string; template: unknown }>(
+    `paper/templates/${encodeURIComponent(id)}`,
+  );
+export const createPaperTemplate = (name: string, template: unknown) =>
+  request<{ id: string; name: string }>("paper/templates", { name, template });
+export const updatePaperTemplate = (
+  id: string,
+  name: string,
+  template: unknown,
+) =>
+  request<{ id: string; name: string }>(
+    `paper/templates/${encodeURIComponent(id)}`,
+    { name, template },
+    "PUT",
+  );
 export async function exportPdf(
   source_text: string,
   settings: Settings,

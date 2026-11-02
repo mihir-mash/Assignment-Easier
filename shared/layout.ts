@@ -18,6 +18,14 @@ export type Settings = {
   offset_x_mm: number;
   offset_y_mm: number;
   equation_mode: boolean;
+  line_baselines_mm: number[];
+  exclusion_zones_mm: ExclusionZone[];
+};
+export type ExclusionZone = {
+  x_mm: number;
+  y_mm: number;
+  width_mm: number;
+  height_mm: number;
 };
 export const defaults: Settings = {
   width_mm: 210,
@@ -36,6 +44,8 @@ export const defaults: Settings = {
   offset_x_mm: 0,
   offset_y_mm: 0,
   equation_mode: false,
+  line_baselines_mm: [],
+  exclusion_zones_mm: [],
 };
 export type Run = {
   text: string;
@@ -92,19 +102,73 @@ export function validateSettings(s: Settings): string[] {
   if (s.left_margin_mm + s.right_margin_mm + s.font_size_mm * 2 >= s.width_mm)
     errors.push("Margins leave too little writing width.");
   if (
-    s.first_baseline_mm < s.header_margin_mm + s.font_size_mm ||
-    s.first_baseline_mm + s.font_size_mm * 0.3 >
-      s.height_mm - s.footer_margin_mm
+    (!s.line_baselines_mm.length &&
+      s.first_baseline_mm < s.header_margin_mm + s.font_size_mm) ||
+    (!s.line_baselines_mm.length &&
+      s.first_baseline_mm + s.font_size_mm * 0.3 >
+        s.height_mm - s.footer_margin_mm)
   )
     errors.push(
       "First baseline must leave room for letters below the header and above the footer.",
     );
-  if (s.line_spacing_mm < s.font_size_mm * 1.25)
+  if (!s.line_baselines_mm.length && s.line_spacing_mm < s.font_size_mm * 1.25)
     errors.push(
       "Line spacing must be at least 1.25 times writing size to prevent overlap.",
     );
   if (!/^#[0-9a-fA-F]{6}$/.test(s.ink_color))
     errors.push("Choose a valid six-digit ink color.");
+  if (
+    !Array.isArray(s.line_baselines_mm) ||
+    s.line_baselines_mm.length > 200 ||
+    s.line_baselines_mm.some((value) => !Number.isFinite(value))
+  ) {
+    errors.push(
+      "Individual line baselines must contain at most 200 finite millimetre positions.",
+    );
+  } else if (s.line_baselines_mm.length) {
+    const ys = s.line_baselines_mm;
+    if (
+      ys.some(
+        (value) =>
+          value < s.header_margin_mm + s.font_size_mm ||
+          value + s.font_size_mm * 0.3 > s.height_mm - s.footer_margin_mm,
+      )
+    )
+      errors.push(
+        "Individual baselines must stay inside the writable top and bottom boundaries.",
+      );
+    if (
+      ys.some(
+        (value, index) =>
+          index > 0 && value - ys[index - 1] < s.font_size_mm * 1.25,
+      )
+    )
+      errors.push(
+        "Individual baselines must be ordered and spaced far enough apart for the writing size.",
+      );
+  }
+  if (
+    !Array.isArray(s.exclusion_zones_mm) ||
+    s.exclusion_zones_mm.length > 50
+  ) {
+    errors.push("Use at most 50 writing exclusion zones.");
+  } else
+    for (const zone of s.exclusion_zones_mm) {
+      if (
+        ![zone.x_mm, zone.y_mm, zone.width_mm, zone.height_mm].every(
+          Number.isFinite,
+        ) ||
+        zone.x_mm < 0 ||
+        zone.y_mm < 0 ||
+        zone.width_mm <= 0 ||
+        zone.height_mm <= 0 ||
+        zone.x_mm + zone.width_mm > s.width_mm ||
+        zone.y_mm + zone.height_mm > s.height_mm
+      )
+        errors.push(
+          "Exclusion zones must have positive dimensions and stay inside the physical paper.",
+        );
+    }
   return errors;
 }
 
@@ -119,7 +183,8 @@ export function layoutDocument(source: string, settings: Settings): Layout {
   if (s.equation_mode && tokens.some((t) => t.text === "^" || t.text === "_"))
     warnings.add("Unrecognized math syntax is displayed literally.");
   const pages: Page[] = [];
-  let baseline = s.first_baseline_mm;
+  let baselineIndex = 0;
+  let baseline = s.line_baselines_mm[0] ?? s.first_baseline_mm;
   let x = s.left_margin_mm;
   // Conservative italic/slant overhang reserve, identical for preview and PDF.
   const overhang =
@@ -133,14 +198,21 @@ export function layoutDocument(source: string, settings: Settings): Layout {
       runs: [],
       warnings: [],
     });
-    baseline = s.first_baseline_mm;
+    baselineIndex = 0;
+    baseline = s.line_baselines_mm[0] ?? s.first_baseline_mm;
   };
   newPage();
   const newLine = () => {
     x = s.left_margin_mm;
-    baseline += s.line_spacing_mm;
-    if (baseline + s.font_size_mm * 0.3 > s.height_mm - s.footer_margin_mm)
-      newPage();
+    if (s.line_baselines_mm.length) {
+      baselineIndex++;
+      if (baselineIndex >= s.line_baselines_mm.length) newPage();
+      else baseline = s.line_baselines_mm[baselineIndex];
+    } else {
+      baseline += s.line_spacing_mm;
+      if (baseline + s.font_size_mm * 0.3 > s.height_mm - s.footer_margin_mm)
+        newPage();
+    }
   };
   const width = (index: number) => {
     const token = tokens[index];
@@ -151,6 +223,32 @@ export function layoutDocument(source: string, settings: Settings): Layout {
       s.letter_spacing_mm +
       (/\s/.test(token.text) ? s.word_spacing_mm : 0)
     );
+  };
+  let zoneAdvanceCount = 0;
+  const movePastExclusions = (
+    advanceMm: number,
+    riseMm: number,
+    scale: number,
+  ): boolean => {
+    while (true) {
+      const runBaselineMm = baseline + riseMm * s.font_size_mm + s.offset_y_mm;
+      const runFontMm = s.font_size_mm * scale;
+      const topMm = runBaselineMm - runFontMm;
+      const bottomMm = runBaselineMm + runFontMm * 0.3;
+      const zone = s.exclusion_zones_mm.find(
+        (candidate) =>
+          topMm < candidate.y_mm + candidate.height_mm &&
+          bottomMm > candidate.y_mm &&
+          x + s.offset_x_mm - overhang < candidate.x_mm + candidate.width_mm &&
+          x + s.offset_x_mm + advanceMm + overhang > candidate.x_mm,
+      );
+      if (!zone) return true;
+      x = zone.x_mm + zone.width_mm + overhang - s.offset_x_mm;
+      if (x + advanceMm <= right) continue;
+      newLine();
+      zoneAdvanceCount++;
+      if (zoneAdvanceCount > 1000) return false;
+    }
   };
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
@@ -178,10 +276,24 @@ export function layoutDocument(source: string, settings: Settings): Layout {
         cursor++
       )
         wordWidth += width(cursor);
+      if (!movePastExclusions(wordWidth, token.rise, token.scale))
+        return {
+          pages: [],
+          warnings: [
+            "No configured baseline can avoid the writing exclusion zones.",
+          ],
+        };
       if (wordWidth <= right - s.left_margin_mm && x + wordWidth > right)
         newLine();
     }
     const advance = width(index);
+    if (!movePastExclusions(advance, token.rise, token.scale))
+      return {
+        pages: [],
+        warnings: [
+          "No configured baseline can avoid the writing exclusion zones.",
+        ],
+      };
     if (x + advance > right && x > s.left_margin_mm) newLine();
     const missing =
       metrics[String(token.drawText.codePointAt(0))] === undefined;

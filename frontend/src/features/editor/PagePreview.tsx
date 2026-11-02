@@ -27,6 +27,23 @@ export function PagePreview({
     value: number,
   ) => void;
 }) {
+  const baselineYsMm = settings.line_baselines_mm.length
+    ? settings.line_baselines_mm
+    : Array.from(
+        {
+          length: Math.max(
+            0,
+            Math.floor(
+              (settings.height_mm -
+                settings.footer_margin_mm -
+                settings.first_baseline_mm) /
+                settings.line_spacing_mm,
+            ) + 1,
+          ),
+        },
+        (_, index) =>
+          settings.first_baseline_mm + index * settings.line_spacing_mm,
+      );
   const slider = (
     key:
       | "header_margin_mm"
@@ -168,34 +185,25 @@ export function PagePreview({
                       settings.footer_margin_mm,
                   )}
                 />
-                {Array.from(
-                  {
-                    length: Math.max(
-                      0,
-                      Math.floor(
-                        (page.height_mm -
-                          settings.footer_margin_mm -
-                          settings.first_baseline_mm) /
-                          settings.line_spacing_mm,
-                      ) + 1,
-                    ),
-                  },
-                  (_, index) => (
-                    <line
-                      key={index}
-                      x1={settings.left_margin_mm}
-                      x2={page.width_mm - settings.right_margin_mm}
-                      y1={
-                        settings.first_baseline_mm +
-                        index * settings.line_spacing_mm
-                      }
-                      y2={
-                        settings.first_baseline_mm +
-                        index * settings.line_spacing_mm
-                      }
-                    />
-                  ),
-                )}
+                {baselineYsMm.map((baselineYmm, index) => (
+                  <line
+                    key={index}
+                    x1={settings.left_margin_mm}
+                    x2={page.width_mm - settings.right_margin_mm}
+                    y1={baselineYmm}
+                    y2={baselineYmm}
+                  />
+                ))}
+                {settings.exclusion_zones_mm.map((zone, index) => (
+                  <rect
+                    key={`exclusion-${index}`}
+                    className="exclusion-zone"
+                    x={zone.x_mm}
+                    y={zone.y_mm}
+                    width={zone.width_mm}
+                    height={zone.height_mm}
+                  />
+                ))}
               </g>
             )}
             {interactive && (

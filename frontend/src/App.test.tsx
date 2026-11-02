@@ -129,7 +129,7 @@ test("local template saves reload settings and Equation Mode never resumes enabl
   fireEvent.click(screen.getByRole("button", { name: "Save template" }));
   await waitFor(() =>
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Template saved locally",
+      "Saved this template in browser storage",
     ),
   );
   expect(

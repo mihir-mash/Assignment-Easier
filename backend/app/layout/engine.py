@@ -1,5 +1,5 @@
 """Python adapter to the exact layout engine used offline in React."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 import subprocess
@@ -28,6 +28,8 @@ class LayoutSettings:
     slant_deg: float = 0.0
     offset_x_mm: float = 0.0
     offset_y_mm: float = 0.0
+    line_baselines_mm: list[float] = field(default_factory=list)
+    exclusion_zones_mm: list[dict[str, float]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

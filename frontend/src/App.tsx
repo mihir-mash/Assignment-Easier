@@ -45,18 +45,11 @@ export function App() {
         >
           <span className="brand-mark">i</span>InkMatch
         </a>
+        <p className="header-tagline">
+          Prepare your sheet, compose on the page, then print only the ink.
+        </p>
         <span className="connection">{health}</span>
       </header>
-      <div className="intro">
-        <div>
-          <p className="eyebrow">Your paper. Your words.</p>
-          <h1>Make room for what you write.</h1>
-          <p>
-            Prepare your sheet, compose on the page, then print only the ink.
-          </p>
-        </div>
-        <span className="badge">Demo font, Stage 1</span>
-      </div>
       <nav className="tabs" role="tablist" aria-label="Document workflow">
         {tabs.map((tab, index) => (
           <button

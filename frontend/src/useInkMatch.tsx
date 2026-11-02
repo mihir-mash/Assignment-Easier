@@ -11,6 +11,11 @@ import {
   getHealth,
   detectPaper,
   suggestLines,
+  listPaperTemplates,
+  getPaperTemplate,
+  createPaperTemplate,
+  updatePaperTemplate,
+  ApiError,
   type Suggestions,
 } from "./api";
 import { readStored, writeStored } from "./storage";
@@ -25,7 +30,12 @@ type Workspace = {
   orientation: string;
   custom: [number, number];
 };
-type SavedTemplate = { name: string; workspace: Workspace };
+type SavedTemplate = {
+  id: string;
+  name: string;
+  workspace?: Workspace;
+  storage: "browser" | "sqlite";
+};
 type Calibration = { name: string; offset_x_mm: number; offset_y_mm: number };
 const initialWorkspace: Workspace = {
   settings: defaults,
@@ -69,6 +79,7 @@ export function useInkMatch() {
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
   const [calibrationName, setCalibrationName] = useState("My printer");
   const [templateName, setTemplateName] = useState("My paper");
@@ -104,7 +115,7 @@ export function useInkMatch() {
       });
     Promise.all([
       readStored<Workspace>("draft"),
-      readStored<SavedTemplate[]>("templates"),
+      readStored<Array<{ name: string; workspace: Workspace }>>("templates"),
       readStored<Calibration[]>("calibrations"),
     ])
       .then(([draft, saved, savedCalibrations]) => {
@@ -115,9 +126,38 @@ export function useInkMatch() {
             ...draft,
             settings: { ...defaults, ...draft.settings, equation_mode: false },
           });
-        if (Array.isArray(saved)) setTemplates(saved);
+        const browserTemplates = Array.isArray(saved)
+          ? saved.map((item, index) => ({
+              ...item,
+              id: `browser:${index}:${item.name}`,
+              storage: "browser" as const,
+            }))
+          : [];
+        setTemplates(browserTemplates);
         if (Array.isArray(savedCalibrations))
           setCalibrations(savedCalibrations);
+        void listPaperTemplates()
+          .then((remote) => {
+            if (!alive) return;
+            const remoteNames = new Set(remote.map((item) => item.name));
+            setTemplates((current) => [
+              ...current.filter(
+                (item) =>
+                  item.storage === "browser" && !remoteNames.has(item.name),
+              ),
+              ...remote.map((item) => ({
+                id: item.id,
+                name: item.name,
+                storage: "sqlite" as const,
+              })),
+            ]);
+          })
+          .catch(() => {
+            if (alive && browserTemplates.length)
+              setNotice(
+                "Using browser-saved paper templates while the local template service is unavailable.",
+              );
+          });
       })
       .catch(() => {
         if (alive)
@@ -237,6 +277,39 @@ export function useInkMatch() {
       );
     }
   };
+  const saveBrowserTemplate = async (
+    name: string,
+    savedWorkspace: Workspace,
+    allowUpdate: boolean,
+  ) => {
+    const existing =
+      (await readStored<Array<{ name: string; workspace: Workspace }>>(
+        "templates",
+      )) ?? [];
+    if (!allowUpdate && existing.some((item) => item.name === name))
+      throw new Error(
+        "A browser template already has this name. Select it and choose Update selected template.",
+      );
+    const next = [
+      ...existing.filter((item) => item.name !== name),
+      { name, workspace: savedWorkspace },
+    ];
+    await writeStored("templates", next);
+    const local = next.map((item, index) => ({
+      ...item,
+      id: "browser:" + index + ":" + item.name,
+      storage: "browser" as const,
+    }));
+    setTemplates((current) => [
+      ...current.filter(
+        (item) => item.storage === "sqlite" && item.name !== name,
+      ),
+      ...local,
+    ]);
+    const selected = local.find((item) => item.name === name);
+    if (selected) setSelectedTemplateId(selected.id);
+  };
+
   const saveTemplate = async () => {
     if (validateSettings(settings).length) {
       setNotice("Correct the layout settings before saving.");
@@ -253,19 +326,176 @@ export function useInkMatch() {
         settings: { ...settings, equation_mode: false },
       },
     };
-    const next = [
-      ...templates.filter((template) => template.name !== saved.name),
-      saved,
-    ];
-    try {
-      await writeStored("templates", next);
-      setTemplates(next);
+    if (templates.some((template) => template.name === saved.name)) {
       setNotice(
-        "Template saved locally, including the original image and confirmed crop.",
+        "A template already has this name. Select it and use Update selected template, or choose a new name.",
+      );
+      return;
+    }
+    try {
+      const created = await createPaperTemplate(saved.name, saved.workspace);
+      await saveBrowserTemplate(saved.name, saved.workspace, true);
+      setTemplates((current) => [
+        ...current.filter((item) => item.name !== saved.name),
+        {
+          id: created.id,
+          name: created.name,
+          storage: "sqlite",
+          workspace: saved.workspace,
+        },
+      ]);
+      setSelectedTemplateId(created.id);
+      setNotice(
+        "Template saved to the local SQLite library and cached in this browser.",
       );
     } catch (error) {
-      setNotice(String(error));
+      if (error instanceof ApiError && error.status < 500) {
+        setNotice(
+          error.message.includes("already exists")
+            ? "A service template already has this name. Select it and choose Update selected template."
+            : error.message,
+        );
+        return;
+      }
+      try {
+        await saveBrowserTemplate(saved.name, saved.workspace, false);
+        setNotice(
+          "Local template service unavailable. Saved this template in browser storage.",
+        );
+      } catch (storageError) {
+        setNotice(
+          storageError instanceof Error
+            ? storageError.message
+            : "Template could not be saved.",
+        );
+      }
     }
+  };
+  const updateTemplate = async () => {
+    const selected = templates.find((item) => item.id === selectedTemplateId);
+    if (!selected) {
+      setNotice("Choose a saved template before updating it.");
+      return;
+    }
+    if (validateSettings(settings).length || !templateName.trim()) {
+      setNotice(
+        "Enter a name and correct the writing geometry before updating.",
+      );
+      return;
+    }
+    const name = templateName.trim();
+    if (
+      templates.some((item) => item.id !== selected.id && item.name === name)
+    ) {
+      setNotice(
+        "Another saved template already has this name. Choose a unique name before updating.",
+      );
+      return;
+    }
+    const savedWorkspace = {
+      ...workspace,
+      settings: { ...settings, equation_mode: false },
+    };
+    if (selected.storage === "sqlite") {
+      try {
+        const updated = await updatePaperTemplate(
+          selected.id,
+          name,
+          savedWorkspace,
+        );
+        await saveBrowserTemplate(name, savedWorkspace, true);
+        setTemplates((current) => [
+          ...current.filter(
+            (item) =>
+              item.id !== selected.id &&
+              !(item.storage === "sqlite" && item.name === name),
+          ),
+          {
+            id: updated.id,
+            name: updated.name,
+            storage: "sqlite",
+            workspace: savedWorkspace,
+          },
+        ]);
+        setSelectedTemplateId(updated.id);
+        setNotice(
+          "Template updated in the local SQLite library and browser cache.",
+        );
+      } catch (error) {
+        if (error instanceof ApiError && error.status < 500) {
+          setNotice(error.message);
+          return;
+        }
+        try {
+          await saveBrowserTemplate(name, savedWorkspace, true);
+          setNotice(
+            "Template service unavailable. Updated the browser copy; the SQLite copy is unchanged.",
+          );
+        } catch (storageError) {
+          setNotice(
+            storageError instanceof Error
+              ? storageError.message
+              : "Template update failed.",
+          );
+        }
+      }
+      return;
+    }
+    try {
+      await saveBrowserTemplate(name, savedWorkspace, true);
+      setNotice("Browser template updated.");
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Template update failed.",
+      );
+    }
+  };
+
+  const loadTemplate = async (id: string) => {
+    setSelectedTemplateId(id);
+    if (!id) return;
+    const selected = templates.find((item) => item.id === id);
+    if (!selected) return;
+    let savedWorkspace = selected.workspace;
+    if (selected.storage === "sqlite") {
+      try {
+        const remote = await getPaperTemplate(id);
+        const payload = remote.template as Partial<Workspace>;
+        savedWorkspace = payload.settings ? (payload as Workspace) : undefined;
+      } catch {
+        if (!savedWorkspace) {
+          setNotice(
+            "This template is in the local SQLite library but cannot be loaded while the service is offline. Try again when connected.",
+          );
+          return;
+        }
+        setNotice(
+          "Loaded the browser-cached copy. The SQLite service is currently unavailable.",
+        );
+      }
+    }
+    if (
+      !savedWorkspace?.settings ||
+      validateSettings({ ...defaults, ...savedWorkspace.settings }).length
+    ) {
+      setNotice(
+        "This saved template has invalid or incomplete geometry and was not loaded.",
+      );
+      return;
+    }
+    setWorkspace((current) => ({
+      ...initialWorkspace,
+      ...savedWorkspace,
+      settings: {
+        ...defaults,
+        ...savedWorkspace!.settings,
+        equation_mode: false,
+      },
+      source: current.source,
+    }));
+    setTemplateName(selected.name);
+    setSuggestions(null);
+    setNotice("Template loaded. Current document text is preserved.");
   };
   const findLines = async () => {
     if (!acceptedImage) {
@@ -383,6 +613,7 @@ export function useInkMatch() {
     setCalibrationName,
     templateName,
     setTemplateName,
+    selectedTemplateId,
     suggestions,
     setSuggestions,
     exporting,
@@ -397,6 +628,8 @@ export function useInkMatch() {
     pageSize,
     upload,
     saveTemplate,
+    updateTemplate,
+    loadTemplate,
     findLines,
     download,
     saveCalibration,

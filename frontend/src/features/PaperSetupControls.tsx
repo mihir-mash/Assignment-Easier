@@ -22,9 +22,28 @@ export function PaperSetupControls({
     pageSize,
     upload,
     saveTemplate,
+    updateTemplate,
+    selectedTemplateId,
+    loadTemplate,
     findLines,
     numeric,
   } = editor;
+  const updateZone = (
+    index: number,
+    key: "x_mm" | "y_mm" | "width_mm" | "height_mm",
+    value: number,
+  ) => {
+    setWorkspace((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        exclusion_zones_mm: current.settings.exclusion_zones_mm.map(
+          (zone, zoneIndex) =>
+            zoneIndex === index ? { ...zone, [key]: value } : zone,
+        ),
+      },
+    }));
+  };
   return (
     <aside className="control-panel">
       {mode === "paper" && (
@@ -120,11 +139,234 @@ export function PaperSetupControls({
           </p>
           <div className="field-grid">
             {numeric("header_margin_mm", "Header exclusion (mm)")}
-            {numeric("first_baseline_mm", "First baseline (mm)", 1, 999)}
-            {numeric("line_spacing_mm", "Line spacing (mm)", 2, 50)}
+            {!settings.line_baselines_mm.length &&
+              numeric("first_baseline_mm", "First baseline (mm)", 1, 999)}
+            {!settings.line_baselines_mm.length &&
+              numeric("line_spacing_mm", "Line spacing (mm)", 2, 50)}
             {numeric("footer_margin_mm", "Footer exclusion (mm)")}
             {numeric("left_margin_mm", "Left margin (mm)")}
             {numeric("right_margin_mm", "Right margin (mm)")}
+          </div>
+          {settings.line_baselines_mm.length === 0 ? (
+            <button
+              onClick={() =>
+                setWorkspace((current) => {
+                  const count = Math.min(
+                    200,
+                    Math.floor(
+                      (current.settings.height_mm -
+                        current.settings.footer_margin_mm -
+                        current.settings.first_baseline_mm) /
+                        current.settings.line_spacing_mm,
+                    ) + 1,
+                  );
+                  return {
+                    ...current,
+                    settings: {
+                      ...current.settings,
+                      line_baselines_mm: Array.from(
+                        { length: Math.max(0, count) },
+                        (_, index) =>
+                          current.settings.first_baseline_mm +
+                          index * current.settings.line_spacing_mm,
+                      ),
+                    },
+                  };
+                })
+              }
+            >
+              Configure individual baselines
+            </button>
+          ) : (
+            <div className="geometry-list">
+              <h3>Individual line baselines (mm)</h3>
+              {settings.line_baselines_mm.map((baseline, index) => (
+                <div className="geometry-row" key={index}>
+                  <NumberField
+                    label={`Line ${index + 1} baseline (mm)`}
+                    value={baseline}
+                    min={1}
+                    max={settings.height_mm}
+                    step={0.1}
+                    onChange={(value) =>
+                      setWorkspace((current) => ({
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          line_baselines_mm:
+                            current.settings.line_baselines_mm.map(
+                              (line, lineIndex) =>
+                                lineIndex === index ? value : line,
+                            ),
+                        },
+                      }))
+                    }
+                  />
+                  <button
+                    aria-label={`Remove line ${index + 1}`}
+                    onClick={() =>
+                      setWorkspace((current) => ({
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          line_baselines_mm:
+                            current.settings.line_baselines_mm.filter(
+                              (_, lineIndex) => lineIndex !== index,
+                            ),
+                        },
+                      }))
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <div className="actions">
+                <button
+                  disabled={settings.line_baselines_mm.length >= 200}
+                  onClick={() =>
+                    setWorkspace((current) => {
+                      const last =
+                        current.settings.line_baselines_mm.at(-1) ??
+                        current.settings.first_baseline_mm;
+                      const next = last + current.settings.line_spacing_mm;
+                      if (
+                        next + current.settings.font_size_mm * 0.3 >
+                        current.settings.height_mm -
+                          current.settings.footer_margin_mm
+                      )
+                        return current;
+                      return {
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          line_baselines_mm: [
+                            ...current.settings.line_baselines_mm,
+                            next,
+                          ],
+                        },
+                      };
+                    })
+                  }
+                >
+                  Add baseline
+                </button>
+                <button
+                  onClick={() =>
+                    setWorkspace((current) => ({
+                      ...current,
+                      settings: { ...current.settings, line_baselines_mm: [] },
+                    }))
+                  }
+                >
+                  Use regular spacing
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="geometry-list">
+            <div className="section-heading">
+              <div>
+                <h3>Writing exclusion zones</h3>
+                <p>
+                  Text will flow around these areas. Red overlays are not
+                  printed.
+                </p>
+              </div>
+              <button
+                disabled={settings.exclusion_zones_mm.length >= 50}
+                onClick={() =>
+                  setWorkspace((current) => {
+                    const x = Math.min(
+                      current.settings.left_margin_mm,
+                      current.settings.width_mm - 10,
+                    );
+                    const y = Math.min(
+                      Math.max(
+                        0,
+                        current.settings.first_baseline_mm -
+                          current.settings.font_size_mm,
+                      ),
+                      current.settings.height_mm - 10,
+                    );
+                    return {
+                      ...current,
+                      settings: {
+                        ...current.settings,
+                        exclusion_zones_mm: [
+                          ...current.settings.exclusion_zones_mm,
+                          {
+                            x_mm: x,
+                            y_mm: y,
+                            width_mm: Math.min(
+                              30,
+                              current.settings.width_mm - x,
+                            ),
+                            height_mm: Math.min(
+                              12,
+                              current.settings.height_mm - y,
+                            ),
+                          },
+                        ],
+                      },
+                    };
+                  })
+                }
+              >
+                Add zone
+              </button>
+            </div>
+            {settings.exclusion_zones_mm.map((zone, index) => (
+              <fieldset className="zone-fields" key={index}>
+                <legend>Zone {index + 1}</legend>
+                <div className="field-grid">
+                  <NumberField
+                    label="Left (mm)"
+                    value={zone.x_mm}
+                    min={0}
+                    max={settings.width_mm}
+                    onChange={(value) => updateZone(index, "x_mm", value)}
+                  />
+                  <NumberField
+                    label="Top (mm)"
+                    value={zone.y_mm}
+                    min={0}
+                    max={settings.height_mm}
+                    onChange={(value) => updateZone(index, "y_mm", value)}
+                  />
+                  <NumberField
+                    label="Width (mm)"
+                    value={zone.width_mm}
+                    min={1}
+                    max={settings.width_mm}
+                    onChange={(value) => updateZone(index, "width_mm", value)}
+                  />
+                  <NumberField
+                    label="Height (mm)"
+                    value={zone.height_mm}
+                    min={1}
+                    max={settings.height_mm}
+                    onChange={(value) => updateZone(index, "height_mm", value)}
+                  />
+                </div>
+                <button
+                  onClick={() =>
+                    setWorkspace((current) => ({
+                      ...current,
+                      settings: {
+                        ...current.settings,
+                        exclusion_zones_mm:
+                          current.settings.exclusion_zones_mm.filter(
+                            (_, zoneIndex) => zoneIndex !== index,
+                          ),
+                      },
+                    }))
+                  }
+                >
+                  Delete zone
+                </button>
+              </fieldset>
+            ))}
           </div>
           <button onClick={() => void findLines()} disabled={!acceptedImage}>
             Suggest printed lines
@@ -160,6 +402,18 @@ export function PaperSetupControls({
                     settings: {
                       ...current.settings,
                       first_baseline_mm: first,
+                      line_baselines_mm: suggestions.baseline_ys_mm.filter(
+                        (value, index, rows) =>
+                          value >=
+                            current.settings.header_margin_mm +
+                              current.settings.font_size_mm &&
+                          value + current.settings.font_size_mm * 0.3 <=
+                            current.settings.height_mm -
+                              current.settings.footer_margin_mm &&
+                          (index === 0 ||
+                            value - rows[index - 1] >=
+                              current.settings.font_size_mm * 1.25),
+                      ),
                       left_margin_mm: suggestions.left_margin_mm,
                       right_margin_mm: suggestions.right_margin_mm,
                       line_spacing_mm: Math.max(
@@ -186,30 +440,27 @@ export function PaperSetupControls({
               />
             </label>
             <button onClick={() => void saveTemplate()}>Save template</button>
+            <button
+              disabled={!selectedTemplateId}
+              onClick={() => void updateTemplate()}
+            >
+              Update selected template
+            </button>
             <label className="field">
               Load a template
               <select
-                value=""
-                onChange={(event) => {
-                  const saved = templates.find(
-                    (template) => template.name === event.target.value,
-                  );
-                  if (saved) {
-                    setWorkspace((current) => ({
-                      ...saved.workspace,
-                      source: current.source,
-                    }));
-                    setTemplateName(saved.name);
-                    setSuggestions(null);
-                    setNotice(
-                      "Template loaded. Current document text is preserved.",
-                    );
-                  }
-                }}
+                value={selectedTemplateId}
+                onChange={(event) => void loadTemplate(event.target.value)}
               >
                 <option value="">Choose saved template</option>
                 {templates.map((template) => (
-                  <option key={template.name}>{template.name}</option>
+                  <option key={template.id} value={template.id}>
+                    {template.name} (
+                    {template.storage === "sqlite"
+                      ? "local library"
+                      : "browser"}
+                    )
+                  </option>
                 ))}
               </select>
             </label>

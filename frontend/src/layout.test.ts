@@ -100,6 +100,30 @@ describe("canonical physical layout", () => {
     );
     expect(changed).not.toEqual(original);
   });
+  test("uses irregular baseline positions and routes text around exclusions", () => {
+    const settings = {
+      ...defaults,
+      width_mm: 120,
+      height_mm: 100,
+      first_baseline_mm: 40,
+      line_baselines_mm: [40, 53, 71],
+      exclusion_zones_mm: [{ x_mm: 20, y_mm: 35, width_mm: 28, height_mm: 10 }],
+    };
+    const result = layoutDocument("A\nB\nC\nD", settings);
+    expect(result.pages).toHaveLength(2);
+    const runs = result.pages
+      .flatMap((page) => page.runs)
+      .filter((run) => run.text !== "\n");
+    expect(runs.map((run) => run.baseline_y_mm)).toEqual([40, 53, 71, 40]);
+    for (const run of runs) {
+      const intersects =
+        run.x_mm < 48 &&
+        run.x_mm + run.width_mm > 20 &&
+        run.baseline_y_mm - run.font_size_mm < 45 &&
+        run.baseline_y_mm + run.font_size_mm * 0.3 > 35;
+      expect(intersects).toBe(false);
+    }
+  });
   test.each([0, -1, 1001, Number.NaN])(
     "rejects invalid custom width %s",
     (width_mm) => {

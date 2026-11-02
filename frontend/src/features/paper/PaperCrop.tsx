@@ -30,6 +30,8 @@ export function PaperCrop({
   onNotice: (notice: string) => void;
 }) {
   const [pending, setPending] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [imageRatio, setImageRatio] = useState(1);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(0);
   const revision = useRef(0);
@@ -42,6 +44,7 @@ export function PaperCrop({
   const updateCorners = (corners: Corners) => {
     revision.current++;
     setPending(null);
+    setPreviewMode(false);
     onChange({ ...paper, corners, corrected: null });
   };
   const operation = async (kind: "detect" | "crop") => {
@@ -63,6 +66,7 @@ export function PaperCrop({
         );
         if (current !== revision.current) return;
         setPending(result.image);
+        setPreviewMode(true);
         onNotice("Inspect the corrected sheet, then accept the crop.");
       }
     } catch (error) {
@@ -96,144 +100,181 @@ export function PaperCrop({
         </div>
         <span className="badge">Review required</span>
       </div>
-      <div className="crop-photo">
-        <img
-          src={paper.original}
-          alt="Original paper photograph with surroundings"
-          draggable="false"
-        />
-        <svg
-          viewBox="0 0 1000 1000"
-          preserveAspectRatio="none"
-          aria-label="Paper corner selection"
-        >
-          <polygon
-            points={paper.corners
-              .map((point) => `${point[0] * 1000},${point[1] * 1000}`)
-              .join(" ")}
-            fill="#75997022"
-            stroke="#145d48"
-            strokeWidth="3"
-          />
-          {paper.corners.map((point, index) => (
-            <circle
-              key={index}
-              cx={point[0] * 1000}
-              cy={point[1] * 1000}
-              r="15"
-              fill={selected === index ? "#e7b66b" : "white"}
-              stroke="#145d48"
-              strokeWidth="4"
-              role="button"
-              tabIndex={0}
-              aria-label={`${names[index]} corner`}
-              onFocus={() => setSelected(index)}
-              onKeyDown={(event) => {
-                const delta = event.shiftKey ? 0.01 : 0.002;
-                const offsets: Record<string, [number, number]> = {
-                  ArrowLeft: [-delta, 0],
-                  ArrowRight: [delta, 0],
-                  ArrowUp: [0, -delta],
-                  ArrowDown: [0, delta],
-                };
-                if (offsets[event.key]) {
-                  event.preventDefault();
-                  move(
-                    index,
-                    point[0] + offsets[event.key][0],
-                    point[1] + offsets[event.key][1],
-                  );
-                }
-              }}
-              onPointerDown={(event) => {
-                setSelected(index);
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-              onPointerMove={(event) => {
-                if (!event.currentTarget.hasPointerCapture(event.pointerId))
-                  return;
-                const rect =
-                  event.currentTarget.ownerSVGElement!.getBoundingClientRect();
-                move(
-                  index,
-                  (event.clientX - rect.left) / rect.width,
-                  (event.clientY - rect.top) / rect.height,
-                );
-              }}
-              onPointerUp={(event) =>
-                event.currentTarget.releasePointerCapture(event.pointerId)
-              }
-            />
-          ))}
-        </svg>
-      </div>
-      <div className="corner-fields">
-        {paper.corners.map((point, index) => (
-          <fieldset key={index}>
-            <legend>
-              {index + 1}. {names[index]}
-            </legend>
-            {point.map((value, axis) => (
-              <label key={axis}>
-                {axis === 0 ? "X" : "Y"} (%)
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step=".1"
-                  value={Math.round(value * 1000) / 10}
-                  onChange={(event) =>
-                    move(
-                      index,
-                      axis === 0 ? Number(event.target.value) / 100 : point[0],
-                      axis === 1 ? Number(event.target.value) / 100 : point[1],
-                    )
-                  }
-                />
-              </label>
+      <div className={`crop-stage ${previewMode ? "is-preview" : ""}`}>
+        {!previewMode && (
+          <div className="corner-sidebar">
+            {paper.corners.map((point, index) => (
+              <fieldset key={index}>
+                <legend>
+                  {index + 1}. {names[index]}
+                </legend>
+                {point.map((value, axis) => (
+                  <label key={axis}>
+                    {axis === 0 ? "X" : "Y"} (%)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step=".1"
+                      value={Math.round(value * 1000) / 10}
+                      onChange={(event) =>
+                        move(
+                          index,
+                          axis === 0
+                            ? Number(event.target.value) / 100
+                            : point[0],
+                          axis === 1
+                            ? Number(event.target.value) / 100
+                            : point[1],
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+              </fieldset>
             ))}
-          </fieldset>
-        ))}
+          </div>
+        )}
+        <div
+          className="crop-photo"
+          style={{ aspectRatio: imageRatio, maxWidth: `${560 * imageRatio}px` }}
+        >
+          {previewMode && pending ? (
+            <img
+              className="crop-contained"
+              src={pending}
+              alt="Corrected paper preview"
+              draggable="false"
+            />
+          ) : (
+            <>
+              <img
+                src={paper.original}
+                alt="Original paper photograph with surroundings"
+                draggable="false"
+                onLoad={(event) =>
+                  setImageRatio(
+                    event.currentTarget.naturalWidth /
+                      event.currentTarget.naturalHeight,
+                  )
+                }
+              />
+              <svg
+                viewBox="0 0 1000 1000"
+                preserveAspectRatio="none"
+                aria-label="Paper corner selection"
+              >
+                <polygon
+                  points={paper.corners
+                    .map((point) => `${point[0] * 1000},${point[1] * 1000}`)
+                    .join(" ")}
+                  fill="#75997022"
+                  stroke="#145d48"
+                  strokeWidth="3"
+                />
+                {paper.corners.map((point, index) => (
+                  <circle
+                    key={index}
+                    cx={point[0] * 1000}
+                    cy={point[1] * 1000}
+                    r="15"
+                    fill={selected === index ? "#e7b66b" : "white"}
+                    stroke="#145d48"
+                    strokeWidth="4"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${names[index]} corner`}
+                    onFocus={() => setSelected(index)}
+                    onKeyDown={(event) => {
+                      const delta = event.shiftKey ? 0.01 : 0.002;
+                      const offsets: Record<string, [number, number]> = {
+                        ArrowLeft: [-delta, 0],
+                        ArrowRight: [delta, 0],
+                        ArrowUp: [0, -delta],
+                        ArrowDown: [0, delta],
+                      };
+                      if (offsets[event.key]) {
+                        event.preventDefault();
+                        move(
+                          index,
+                          point[0] + offsets[event.key][0],
+                          point[1] + offsets[event.key][1],
+                        );
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      setSelected(index);
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onPointerMove={(event) => {
+                      if (
+                        !event.currentTarget.hasPointerCapture(event.pointerId)
+                      )
+                        return;
+                      const rect =
+                        event.currentTarget.ownerSVGElement!.getBoundingClientRect();
+                      move(
+                        index,
+                        (event.clientX - rect.left) / rect.width,
+                        (event.clientY - rect.top) / rect.height,
+                      );
+                    }}
+                    onPointerUp={(event) =>
+                      event.currentTarget.releasePointerCapture(event.pointerId)
+                    }
+                  />
+                ))}
+              </svg>
+            </>
+          )}
+        </div>
       </div>
       <div className="actions">
-        <button disabled={busy} onClick={() => void operation("detect")}>
-          Detect sheet corners
-        </button>
-        <button
-          disabled={busy}
-          onClick={() => {
-            revision.current++;
-            onChange({ ...paper, corners: initialCorners, corrected: null });
-            setPending(null);
-          }}
-        >
-          Reset to original
-        </button>
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() => void operation("crop")}
-        >
-          {busy ? "Processing..." : "Preview corrected crop"}
-        </button>
+        {!previewMode && (
+          <button disabled={busy} onClick={() => void operation("detect")}>
+            Detect sheet corners
+          </button>
+        )}
+        {!previewMode && (
+          <button
+            disabled={busy}
+            onClick={() => {
+              revision.current++;
+              onChange({ ...paper, corners: initialCorners, corrected: null });
+              setPending(null);
+              setPreviewMode(false);
+            }}
+          >
+            Reset to original
+          </button>
+        )}
+        {previewMode ? (
+          <button onClick={() => setPreviewMode(false)}>
+            Back to Adjust Crop
+          </button>
+        ) : (
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => void operation("crop")}
+          >
+            {busy ? "Processing..." : "Preview Corrected Crop"}
+          </button>
+        )}
       </div>
-      {pending && (
-        <div className="crop-review">
+      {pending && previewMode && (
+        <div className="crop-review-inline">
           <h3>Confirm the corrected sheet</h3>
           <p>
             Check all four edges. If any desk remains, adjust the corners and
             preview again.
           </p>
-          <img
-            alt="Corrected crop awaiting confirmation"
-            src={pending}
-            style={{ aspectRatio: `${widthMm}/${heightMm}` }}
-          />
           <button
             className="primary"
             onClick={() => {
               onChange({ ...paper, corrected: pending, widthMm, heightMm });
               setPending(null);
+              setPreviewMode(false);
               onNotice(
                 "Crop accepted. You can still edit the corners or paper configuration.",
               );
