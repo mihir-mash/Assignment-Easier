@@ -29,7 +29,7 @@ Statuses: Not Started, In Progress, Blocked, Completed. Stage 2 acquisition buil
 - **Dependencies:** Task 1 API and stroke format.
 - **Acceptance:** Pen, touch and mouse work; absent pressure/tilt are accepted; resizing after capture does not change stored coordinates; failure/retry states are accessible; no sample leaves the local app.
 - **Required tests:** Component/pointer tests and browser success/failure paths; backend stroke persistence regression.
-- **Status:** Not Started.
+- **Status:** Completed.
 
 ### Task 4 (stylus half): Normalization and quality checks
 - **Objective:** Validate stylus sample geometry and provide local quality signals without rejecting missing hardware metadata.
@@ -37,7 +37,7 @@ Statuses: Not Started, In Progress, Blocked, Completed. Stage 2 acquisition buil
 - **Dependencies:** Task 3.
 - **Acceptance:** normalized points and canvas dimensions are validated; quality indicators are explainable and retryable; pressure/tilt absence is not a failure.
 - **Required tests:** valid, boundary, malformed and missing-metadata cases.
-- **Status:** Not Started.
+- **Status:** Completed.
 
 ## Run 3: Notes upload
 

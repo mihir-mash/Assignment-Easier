@@ -168,6 +168,52 @@ def test_stroke_round_trip_allows_missing_pressure_and_tilt(tmp_path, monkeypatc
     assert json.loads(stroke_files[0].read_text()) == stroke_data
 
 
+def test_version_two_stroke_fields_normalize_and_preserve_raw_files(tmp_path, monkeypatch):
+    database = setup_database(tmp_path, monkeypatch)
+    client = TestClient(app)
+    profile_id = client.post("/api/v1/profiles", json={"name": "Version two"}).json()["id"]
+    raw = {
+        "format_version": 2,
+        "pointer_type": "pen",
+        "canvas": {"width_px": 500, "height_px": 300},
+        "strokes": [
+            {
+                "pointer_type": "pen",
+                "start_timestamp": 1,
+                "end_timestamp": 101,
+                "interrupted": False,
+                "points": [
+                    {"x": 0.2, "y": 0.2, "timestamp": 1, "pointer_type": "pen"},
+                    {"x": 0.7, "y": 0.8, "timestamp": 101, "pointer_type": "pen", "pressure": 0.6, "tiltX": 12},
+                ],
+            }
+        ],
+        "events": [
+            {"type": "pen_down", "stroke_index": 0, "timestamp": 1},
+            {"type": "pen_up", "stroke_index": 0, "timestamp": 101},
+        ],
+        "pen_metadata": {},
+    }
+    quality = client.post("/api/v1/profiles/normalize", json={"stroke_data": raw})
+    assert quality.status_code == 200
+    assert quality.json()["stroke_count"] == 1
+    assert quality.json()["has_pressure"] is True
+    created = client.post(
+        f"/api/v1/profiles/{profile_id}/samples",
+        json={"source_type": "stylus", "label_type": "character", "label_text": "a", "label_alignment": "exact", "stroke_data": raw},
+    )
+    assert created.status_code == 201, created.text
+    loaded = client.get(f"/api/v1/profiles/{profile_id}/samples/{created.json()['id']}").json()
+    assert loaded["stroke_data"] == raw
+    assert loaded["normalized_stroke_data"]["stroke_count"] == 1
+    assert loaded["normalized_stroke_data"]["strokes"][0]["points"][1]["x"] == 1
+    assert loaded["processing_status"] == "processed"
+    assert loaded["label_alignment"] == "exact"
+    assets = database.parent / "inkmatch-assets"
+    assert len(list(assets.glob("*.stroke-v2.json"))) == 1
+    assert len(list(assets.glob("*.normalized-v1.json"))) == 1
+
+
 def test_profile_sample_invalid_inputs_and_refs_are_rejected(tmp_path, monkeypatch):
     setup_database(tmp_path, monkeypatch)
     client = TestClient(app)

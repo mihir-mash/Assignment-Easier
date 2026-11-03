@@ -4,11 +4,13 @@ import { PaperCrop } from "./features/paper/PaperCrop";
 import { PaperSetupControls } from "./features/PaperSetupControls";
 import { WritingControls } from "./features/WritingControls";
 import { ExportControls } from "./features/ExportControls";
+import { ProfileCapture } from "./features/profiles/ProfileCapture";
 const tabs = [
   "Select Your Paper",
   "Configure Writing Area",
   "Write and Edit",
   "Preview and Export",
+  "Collect Handwriting",
 ];
 export function App() {
   const editor = useInkMatch();
@@ -62,7 +64,9 @@ export function App() {
             onClick={() => setActiveTab(index)}
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-                const next = (index + (event.key === "ArrowRight" ? 1 : 3)) % 4;
+                const next =
+                  (index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) %
+                  tabs.length;
                 setActiveTab(next);
                 document.getElementById(`tab-${next}`)?.focus();
               }
@@ -196,6 +200,7 @@ export function App() {
             </div>
           </>
         )}
+        {activeTab === 4 && <ProfileCapture />}
       </section>
       <footer>InkMatch · Local workspace · Demo font</footer>
     </main>

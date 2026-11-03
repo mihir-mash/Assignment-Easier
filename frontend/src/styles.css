@@ -520,6 +520,198 @@ footer {
   font-size: 12px;
   width: 100%;
 }
+.capture-sidebar h2,
+.capture-intro h2 {
+  font: normal 25px/1.25 Georgia;
+  margin: 0 0 8px;
+}
+.capture-intro p {
+  max-width: 540px;
+  line-height: 1.7;
+}
+.capture-prompt-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.capture-prompt-heading h2 {
+  margin: 0 0 8px;
+}
+.capture-prompt {
+  font: normal clamp(28px, 5vw, 44px) / 1.2 Georgia;
+  overflow-wrap: anywhere;
+}
+.capture-board {
+  position: relative;
+  width: 100%;
+}
+.capture-canvas {
+  display: block;
+  width: 100%;
+  height: clamp(280px, 46vh, 500px);
+  min-height: 280px;
+  border: 1px solid #b9c8ba;
+  border-radius: 8px;
+  background-color: #fff;
+  background-image: linear-gradient(#eaf0e8 1px, transparent 1px);
+  background-size: 100% 42px;
+  box-shadow: inset 0 1px 5px #34473110;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+.capture-canvas.is-paused {
+  cursor: default;
+}
+.capture-pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: #284d3c;
+  background: #f5f4eecf;
+  border-radius: 8px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.capture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 24px;
+}
+.capture-actions button {
+  flex: 1 1 130px;
+}
+.capture-saved-heading,
+.capture-progress-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.capture-saved-heading h3 {
+  margin: 0;
+  font: normal 20px Georgia;
+}
+.capture-saved-heading span,
+.capture-progress-label {
+  color: #68776e;
+  font-size: 12px;
+}
+.capture-progress-label {
+  margin-top: 4px;
+}
+.capture-sidebar progress {
+  width: 100%;
+  height: 9px;
+  accent-color: #51764f;
+}
+.capture-message {
+  color: #53675b;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.pen-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid #d3dbd0;
+  border-radius: 8px;
+  background: #f8f8f2;
+}
+.pen-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: #274f3c;
+}
+.pen-toggle span,
+.pen-toggle small {
+  display: block;
+}
+.pen-toggle small {
+  margin-top: 5px;
+  color: #68776e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.prompt-library {
+  border-top: 1px solid #d9e1d5;
+  border-bottom: 1px solid #d9e1d5;
+  padding: 10px 0;
+}
+.prompt-library summary {
+  cursor: pointer;
+  color: #284d3c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.prompt-library details {
+  margin: 9px 0 0 10px;
+}
+.prompt-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 7px 0;
+}
+.prompt-list button {
+  min-width: 38px;
+  padding: 5px 7px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.prompt-list button.selected-prompt {
+  border-color: #51764f;
+  background: #e6ecdf;
+  font-weight: 700;
+}
+.capture-sample-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.capture-sample-card {
+  min-width: 0;
+  margin: 0;
+  padding: 7px;
+  border: 1px solid #d3dbd0;
+  border-radius: 7px;
+  background: #fff;
+}
+.capture-sample-card img {
+  display: block;
+  width: 100%;
+  height: 74px;
+  object-fit: contain;
+  background-color: #fafaf6;
+  background-image: linear-gradient(#eaf0e8 1px, transparent 1px);
+  background-size: 100% 18px;
+}
+.capture-sample-card figcaption,
+.capture-sample-card small {
+  display: block;
+  margin-top: 5px;
+  color: #53675b;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.profile-capture-loading {
+  padding: 30px;
+  color: #53675b;
+}
 @media (max-width: 1000px) {
   .app-shell {
     padding: 0 20px;
@@ -561,8 +753,11 @@ footer {
   }
   .tabs {
     gap: 0;
+    overflow-x: auto;
   }
   .tabs button {
+    min-width: 92px;
+    flex: 0 0 auto;
     font-size: 12px;
     padding: 12px 6px;
     text-align: center;

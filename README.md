@@ -69,4 +69,13 @@ Physical printer alignment still needs a real-paper test. The SQLite template se
 
 Local profile APIs are available at `GET/POST /api/v1/profiles`, `GET/PUT/DELETE /api/v1/profiles/{id}`, and `GET/POST /api/v1/profiles/{id}/samples` plus `GET/PUT/DELETE /api/v1/profiles/{id}/samples/{sample_id}`. Profile deletion requires `?confirm=true`; sample-record deletion does too. Deleting records does not remove saved raw stroke files. Asset references are opaque generated UUIDs, not filesystem paths. Stylus stroke data uses a versioned JSON file in the local sibling assets directory, with normalized coordinates and optional pressure/tilt. Bounded image asset storage helpers write local files rather than database blobs; the upload API and image review flow are not implemented in this run. No handwriting capture UI, segmentation, coverage UI, or personalized renderer is implemented. The temporary Stage 1 renderer remains in use.
 
-SQLite migrations use `PRAGMA user_version`. Before a migration modifies an existing database, the backend makes a timestamped SQLite backup next to it. `backend/app/coverage_thresholds.json` contains adjustable defaults; the values are not yet used to show coverage. Stage 2 remains in progress; Stage 3 has not started.
+SQLite migrations use `PRAGMA user_version`. Before a migration modifies an existing database, the backend makes a timestamped SQLite backup next to it. `backend/app/coverage_thresholds.json` contains adjustable defaults; the values are not yet used to show coverage. Stage 2 is in progress. Guided stylus capture and stroke normalization are implemented; image upload and image processing remain for Run 3. Stage 3 has not started.
+
+
+## Guided handwriting capture (Stage 2 Run 2)
+
+Use **Collect Handwriting** to create a local profile and capture prompted samples. The canvas records pointer strokes and normalized coordinates, timing, stroke boundaries and available pointer metadata. Pressure and tilt are optional. The Pen only toggle starts enabled, ignores touch while enabled, and still permits mouse testing; the browser does not claim to detect pen hardware. Words and sentences are labeled unaligned because their strokes are not mapped to individual letters.
+
+Current and completed samples are stored in browser IndexedDB while the local profile API stores raw, versioned stroke JSON and a separate normalized copy. If synchronization fails, the browser retains the pending samples and exposes retry. Normalization is repeatable and preserves raw data; quality notes allow keeping or repeating samples. This workflow does not implement uploaded-image capture, OCR, segmentation, profile coverage or personalized handwriting generation.
+
+Run `STYLUS_MANUAL_TEST.md` on the touchscreen laptop to check actual pen and palm behavior. Those hardware checks remain pending.

@@ -6,7 +6,7 @@
 - Paper upload supports JPG/PNG limits, best-effort local detection, four manual normalized corner controls and perspective correction. The correction preview reuses the photo frame; Back retains manual corner values, Accept returns to editable controls, and the original image remains available for recropping.
 - Writing settings use physical page millimetres. Users can set regular spacing or individually edit/add/remove baselines, and add/edit/delete exclusion rectangles. The shared deterministic layout engine applies these constraints to preview and PDF, moves text around exclusion areas, paginates, and warns when text cannot fit.
 - Template UI lists/loads/creates/explicitly updates via local SQLite APIs and caches browser copies with IndexedDB fallback. Same-name saves require explicit selection and update. Draft and printer profile persistence remain browser-local.
-- Equation Mode is session-only and starts OFF. A4/Letter/custom physical PDF, ink-only export, calibration reference PDF, saved X/Y offsets and Actual Size print guidance are implemented. Stage 2 handwriting capture is not started.
+- Equation Mode is session-only and starts OFF. A4/Letter/custom physical PDF, ink-only export, calibration reference PDF, saved X/Y offsets and Actual Size print guidance are implemented. Stage 2 guided stylus capture is implemented; the touchscreen and real-pen acceptance checklist remains pending.
 
 ## Design decisions
 
@@ -57,9 +57,9 @@
 
 ### Limitations and next step
 
-- Local image storage helpers are implemented. The profile image upload API, image-content validation and upload review flow are deferred to Run 3. Stylus capture UI and processing are Run 2. No handwriting synthesis has been attempted.
+- Local image storage helpers are implemented. The profile image upload API, image-content validation and upload review flow are deferred to Run 3. Guided stylus capture and stylus normalization are completed in Run 2. Upload capture/processing remains planned for Run 3. No handwriting synthesis has been attempted.
 - The earlier browser E2E failures were assertions for the intentionally removed separate crop thumbnail. The tests now assert the corrected image in the crop viewport before acceptance, editing controls after acceptance, and the accepted crop in the writing-area preview. Physical printer alignment is still pending the user's real-world test and is not a blocker for Stage 2.
-- Next authorized work is Run 2: Task 3 guided stylus capture and the stylus portion of Task 4 normalization/quality checks.
+- Run 2 completed Task 3 guided stylus capture and the stylus portion of Task 4 normalization/quality checks. Run 3 upload work has not started.
 
 ### Run 1 hardening verification
 
@@ -69,3 +69,25 @@
 - A process-level persistence test starts two independent backend processes against the same isolated temporary SQLite file and verifies profile/sample retrieval after restart. Processes are stopped in `finally` and ports are dynamically selected with retry.
 - Playwright uses a per-run ignored SQLite database via `INKMATCH_DATABASE`, so E2E template writes do not touch the user's local template database.
 - Full regression: backend pytest **33 passed**; frontend Vitest **19 passed**; Playwright **5 passed**; `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` passed.
+
+
+## Stage 2 Run 2: guided stylus capture and normalization
+
+### Implemented
+
+- Added the Collect Handwriting workflow tab with a guided prompt canvas, repeatable sample save, prompt navigation, pause/resume/finish, clear, undo and an expandable category library. Each saved repetition remains separate, with prompt/context/alignment labels and a preview image.
+- Added unified Pointer Events capture with normalized canvas coordinates, capture dimensions, timing, stroke boundaries, pen-down/up, pointer type, coalesced samples, optional pressure/tilt, pointer cancellation and interruption recovery. Pen only defaults on, ignores touch while enabled, and keeps mouse available for testing.
+- Persisted the current draft and completed raw samples in IndexedDB. Refresh recovery pauses and marks an unfinished stroke interrupted. Completed samples sync to the local profile API; failed sync leaves the local copy available for retry.
+- Added deterministic, non-mutating bbox normalization and quality notes for empty, small, short, interrupted and malformed-sequence samples. Missing pressure/tilt do not fail normalization. Raw and normalized server files are separate and versioned.
+
+### Verification
+
+- Frontend Vitest: 22 passed.
+- Backend pytest: 37 passed.
+- `npm run lint` and `npm run build` passed. Playwright E2E: 8 passed, including Stage 1 regressions, desktop/narrow capture, and profile-service failure handling. `git diff --check` passed.
+- Real pen, hover, pressure/tilt, palm rejection and physical-device refresh behavior are pending the checklist in `STYLUS_MANUAL_TEST.md`; no hardware test is claimed.
+
+### Remaining Stage 2 work
+
+- Run 3: local handwriting image upload and image validation/review/segmentation work are not started.
+- Run 4: combined profile builder/coverage, profile listing and management, workflow integration review, security/privacy review, and final regression remain incomplete. No coverage dashboard or personalized generation was added.

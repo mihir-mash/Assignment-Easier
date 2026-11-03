@@ -339,3 +339,94 @@ test("uncertain detection supports manual corners, rejects invalid crop, and inv
   ).toBeTruthy();
   await page.screenshot({ path: "tmp/qa/mobile-crop.png", fullPage: true });
 });
+
+for (const viewport of [
+  { name: "desktop", width: 1360, height: 980 },
+  { name: "small screen", width: 390, height: 844 },
+]) {
+  test(`guided capture journey at ${viewport.name} width`, async ({ page }) => {
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+    await page.goto("/");
+    await page.getByRole("tab", { name: /Collect Handwriting/ }).click();
+    await page.getByLabel("Profile name").fill(`E2E ${viewport.name}`);
+    await page
+      .getByRole("button", { name: "Create profile and begin" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "a", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Pen only")).toBeChecked();
+    const canvas = page.getByRole("img", {
+      name: "Handwriting capture canvas",
+    });
+    await canvas.scrollIntoViewIfNeeded();
+    const bounds = await canvas.boundingBox();
+    if (!bounds) throw new Error("Capture canvas is unavailable");
+    await page.mouse.move(bounds.x + 30, bounds.y + 40);
+    await page.mouse.down();
+    await page.mouse.move(
+      bounds.x + bounds.width * 0.65,
+      bounds.y + bounds.height * 0.55,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+    await page.mouse.move(bounds.x + 35, bounds.y + 70);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + 90, bounds.y + 95, { steps: 3 });
+    await page.mouse.up();
+    await page.getByRole("button", { name: "Undo last stroke" }).click();
+    await expect(
+      page.getByRole("button", { name: "Undo last stroke" }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "Clear current sample" }).click();
+    await expect(
+      page.getByRole("button", { name: "Save sample" }),
+    ).toBeDisabled();
+    await page.mouse.move(bounds.x + 30, bounds.y + 40);
+    await page.mouse.down();
+    await page.mouse.move(
+      bounds.x + bounds.width * 0.65,
+      bounds.y + bounds.height * 0.55,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+    await expect(
+      page.getByRole("button", { name: "Save sample" }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "Save sample" }).click();
+    await expect(page.locator(".capture-sample-card")).toHaveCount(1);
+    await expect(page.locator(".capture-sample-card img")).toHaveAttribute(
+      "src",
+      /^data:image\/png/,
+    );
+    await expect(page.getByText(/Sample 1 saved/)).toBeVisible({
+      timeout: 15000,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+  });
+}
+
+test("capture setup reports profile service failures accessibly", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/profiles", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Local profile service unavailable." }),
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("tab", { name: /Collect Handwriting/ }).click();
+  await page.getByRole("button", { name: "Create profile and begin" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Local profile service unavailable.",
+  );
+});

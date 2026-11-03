@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.paper.templates import DATABASE
+from app.profiles_processing import normalize_stroke_sample
 from app.storage import asset_directory, migrate
 
 router = APIRouter(prefix="/api/v1/profiles", tags=["handwriting profiles"])
@@ -43,16 +44,27 @@ class StrokePoint(BaseModel):
     pressure: float | None = Field(default=None, ge=0, le=1)
     tiltX: float | None = Field(default=None, ge=-90, le=90)
     tiltY: float | None = Field(default=None, ge=-90, le=90)
+    pointer_type: Literal["pen", "mouse", "touch", "unknown"] = "unknown"
 
 
 class Stroke(BaseModel):
     model_config = ConfigDict(extra="forbid")
     points: list[StrokePoint] = Field(min_length=1, max_length=10000)
+    pointer_type: Literal["pen", "mouse", "touch", "unknown"] = "unknown"
+    start_timestamp: float | None = Field(default=None, ge=0)
+    end_timestamp: float | None = Field(default=None, ge=0)
+    interrupted: bool = False
 
 
 class StrokeEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    type: Literal["pen_down", "pen_up"]
+    type: Literal[
+        "pen_down",
+        "pen_up",
+        "pointer_cancel",
+        "lost_pointer_capture",
+        "session_interrupted",
+    ]
     timestamp: float = Field(ge=0)
     stroke_index: int | None = Field(default=None, ge=0)
 
@@ -69,6 +81,37 @@ class StrokeData(BaseModel):
     def validate_canvas(self) -> None:
         if set(self.canvas) != {"width_px", "height_px"} or any(not 1 <= v <= 20000 for v in self.canvas.values()):
             raise ValueError("Canvas must contain positive width_px and height_px values.")
+
+
+class NormalizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stroke_data: StrokeData
+
+
+def _store_stylus_data(stroke_data: StrokeData) -> tuple[str, str, dict[str, Any]]:
+    directory = asset_directory(DATABASE)
+    raw_reference = str(uuid.uuid4())
+    raw_payload = stroke_data.model_dump_json(exclude_unset=True)
+    raw_path = directory / f"{raw_reference}.stroke-v{stroke_data.format_version}.json"
+    with raw_path.open("x", encoding="utf-8") as raw_file:
+        raw_file.write(raw_payload)
+    normalized = normalize_stroke_sample(json.loads(raw_payload))
+    processed_reference = str(uuid.uuid4())
+    processed_path = directory / f"{processed_reference}.normalized-v1.json"
+    with processed_path.open("x", encoding="utf-8") as processed_file:
+        json.dump(normalized, processed_file, separators=(",", ":"))
+    return raw_reference, processed_reference, normalized
+
+
+@router.post("/normalize")
+def normalize_sample(request: NormalizeRequest) -> dict[str, Any]:
+    try:
+        request.stroke_data.validate_canvas()
+        return normalize_stroke_sample(
+            json.loads(request.stroke_data.model_dump_json(exclude_unset=True))
+        )
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 class SampleCreate(BaseModel):
@@ -189,19 +232,35 @@ def create_sample(profile_id: str, request: SampleCreate) -> dict[str, Any]:
         raise HTTPException(422, str(error)) from error
     sample_id, now = str(uuid.uuid4()), _now()
     stroke_ref = None
+    processed_ref = request.processed_asset_ref
+    sample_quality = request.quality_indicators
+    processing_status = request.processing_status
+    normalization = None
     with _connect() as db:
         _find_profile(db, profile_id)
         if request.stroke_data:
-            stroke_ref = str(uuid.uuid4())
-            directory = asset_directory(DATABASE)
-            content = request.stroke_data.model_dump_json(exclude_unset=True).encode()
-            if len(content) > 8_000_000:
+            if len(request.stroke_data.model_dump_json(exclude_unset=True).encode()) > 8_000_000:
                 raise HTTPException(413, "Stroke data exceeds the 8 MB limit.")
-            (directory / f"{stroke_ref}.stroke-v1.json").write_bytes(content)
-        values = (sample_id, profile_id, request.source_type, request.original_asset_ref, request.processed_asset_ref, request.prompt_text, request.label_type, request.label_text, request.context, request.repetition_number, json.dumps(request.dimensions), request.processing_status, json.dumps(request.quality_indicators), now, request.label_alignment, stroke_ref)
+            stroke_ref, processed_ref, normalization = _store_stylus_data(request.stroke_data)
+            sample_quality = {
+                **request.quality_indicators,
+                "stylus_normalization": {
+                    "bounding_box": normalization["bounding_box"],
+                    "stroke_count": normalization["stroke_count"],
+                    "duration_ms": normalization["duration_ms"],
+                    "has_pressure": normalization["has_pressure"],
+                    "has_timing": normalization["has_timing"],
+                    "quality": normalization["quality"],
+                },
+            }
+            processing_status = "needs_review" if normalization["quality"]["problems"] else "processed"
+        values = (sample_id, profile_id, request.source_type, request.original_asset_ref, processed_ref, request.prompt_text, request.label_type, request.label_text, request.context, request.repetition_number, json.dumps(request.dimensions), processing_status, json.dumps(sample_quality), now, request.label_alignment, stroke_ref)
         db.execute("INSERT INTO handwriting_samples VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", values)
         db.execute("UPDATE handwriting_profiles SET total_sample_count=total_sample_count+1,updated_at=? WHERE id=?", (now, profile_id))
-        return _sample(db.execute("SELECT * FROM handwriting_samples WHERE id=?", (sample_id,)).fetchone())
+        result = _sample(db.execute("SELECT * FROM handwriting_samples WHERE id=?", (sample_id,)).fetchone())
+        if normalization is not None:
+            result["normalization"] = normalization
+        return result
 
 
 @router.get("/{profile_id}/samples")
@@ -221,9 +280,15 @@ def get_sample(profile_id: str, sample_id: str) -> dict[str, Any]:
         result = _sample(row)
         ref = row["stroke_asset_ref"]
         if ref:
-            path = asset_directory(DATABASE) / f"{ref}.stroke-v1.json"
-            if path.is_file():
-                result["stroke_data"] = json.loads(path.read_text(encoding="utf-8"))
+            directory = asset_directory(DATABASE)
+            raw_paths = sorted(directory.glob(f"{ref}.stroke-v*.json"), reverse=True)
+            if raw_paths:
+                result["stroke_data"] = json.loads(raw_paths[0].read_text(encoding="utf-8"))
+        processed_ref = row["processed_asset_ref"]
+        if row["source_type"] == "stylus" and processed_ref:
+            processed_path = asset_directory(DATABASE) / f"{processed_ref}.normalized-v1.json"
+            if processed_path.is_file():
+                result["normalized_stroke_data"] = json.loads(processed_path.read_text(encoding="utf-8"))
         return result
 
 
@@ -240,13 +305,26 @@ def update_sample(profile_id: str, sample_id: str, request: SampleCreate) -> dic
             raise HTTPException(404, "Handwriting sample was not found.")
         # Keep raw stroke files immutable: edits that supply strokes create a new file.
         stroke_ref = existing["stroke_asset_ref"]
+        processed_ref = request.processed_asset_ref
+        sample_quality = request.quality_indicators
+        processing_status = request.processing_status
         if request.stroke_data:
-            stroke_ref = str(uuid.uuid4())
-            content = request.stroke_data.model_dump_json(exclude_unset=True).encode()
-            if len(content) > 8_000_000:
+            if len(request.stroke_data.model_dump_json(exclude_unset=True).encode()) > 8_000_000:
                 raise HTTPException(413, "Stroke data exceeds the 8 MB limit.")
-            (asset_directory(DATABASE) / f"{stroke_ref}.stroke-v1.json").write_bytes(content)
-        values = (request.source_type, request.original_asset_ref, request.processed_asset_ref, request.prompt_text, request.label_type, request.label_text, request.context, request.repetition_number, json.dumps(request.dimensions), request.processing_status, json.dumps(request.quality_indicators), request.label_alignment, stroke_ref, sample_id, profile_id)
+            stroke_ref, processed_ref, normalization = _store_stylus_data(request.stroke_data)
+            sample_quality = {
+                **request.quality_indicators,
+                "stylus_normalization": {
+                    "bounding_box": normalization["bounding_box"],
+                    "stroke_count": normalization["stroke_count"],
+                    "duration_ms": normalization["duration_ms"],
+                    "has_pressure": normalization["has_pressure"],
+                    "has_timing": normalization["has_timing"],
+                    "quality": normalization["quality"],
+                },
+            }
+            processing_status = "needs_review" if normalization["quality"]["problems"] else "processed"
+        values = (request.source_type, request.original_asset_ref, processed_ref, request.prompt_text, request.label_type, request.label_text, request.context, request.repetition_number, json.dumps(request.dimensions), processing_status, json.dumps(sample_quality), request.label_alignment, stroke_ref, sample_id, profile_id)
         db.execute("UPDATE handwriting_samples SET source_type=?,original_asset_ref=?,processed_asset_ref=?,prompt_text=?,label_type=?,label_text=?,context=?,repetition_number=?,dimensions=?,processing_status=?,quality_indicators=?,label_alignment=?,stroke_asset_ref=? WHERE id=? AND profile_id=?", values)
         db.execute("UPDATE handwriting_profiles SET updated_at=? WHERE id=?", (_now(), profile_id))
         return _sample(db.execute("SELECT * FROM handwriting_samples WHERE id=?", (sample_id,)).fetchone())
